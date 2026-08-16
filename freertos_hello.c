@@ -1,10 +1,3 @@
-/*
- * Copyright (c) 2015, Freescale Semiconductor, Inc.
- * Copyright 2016-2017 NXP
- * All rights reserved.
- *
- * SPDX-License-Identifier: BSD-3-Clause
- */
 
 /* FreeRTOS kernel includes. */
 #include "FreeRTOS.h"
@@ -18,46 +11,19 @@
 #include "board.h"
 #include "app.h"
 
-/*******************************************************************************
- * Definitions
- ******************************************************************************/
-/* Task priorities. */
-#define hello_task_PRIORITY (configMAX_PRIORITIES - 1)
-/*******************************************************************************
- * Prototypes
- ******************************************************************************/
-static void hello_task(void *pvParameters);
+#include "app/app_rgb_task.h"
 
-/*******************************************************************************
- * Code
- ******************************************************************************/
-/*!
- * @brief Application entry point.
- */
+
 int main(void)
 {
     /* 硬件初始化. */
     BOARD_InitHardware();
-    if (xTaskCreate(hello_task, "Hello_task", configMINIMAL_STACK_SIZE + 100, NULL, hello_task_PRIORITY, NULL) !=
-        pdPASS)
-    {
-        PRINTF("Task creation failed!.\r\n");
-        while (1)
-            ;
+    
+    if(xTaskCreate(APP_RGB_Task,"RGB_Task",configMINIMAL_STACK_SIZE,NULL,tskIDLE_PRIORITY + 1U,NULL) != pdPASS){
+        PRINTF("RGB_Task create failed!\r\n");
+        for(;;);
     }
     vTaskStartScheduler();
-    for (;;)
-        ;
+    for(;;);
 }
 
-/*!
- * @brief Task responsible for printing of "Hello world." message.
- */
-static void hello_task(void *pvParameters)
-{
-    for (;;)
-    {
-        PRINTF("Hello world.\r\n");
-        vTaskSuspend(NULL);
-    }
-}
