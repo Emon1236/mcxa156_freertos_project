@@ -26,6 +26,14 @@ void BSP_RGB_LED_Init(void);
 //只允许红，绿，蓝其中一路点亮
 void BSP_RGB_SetColor(bsp_rgb_led_t color);
 
+//新增的单独控制一个颜色的任务需要对SetColor函数进行解耦，否则会造成状态竞争
+void BSP_RGB_LED_R_On(void);
+void BSP_RGB_LED_R_Off(void);
+void BSP_RGB_LED_G_On(void);
+void BSP_RGB_LED_G_Off(void);
+void BSP_RGB_LED_B_On(void);
+void BSP_RGB_LED_B_Off(void);
+
 // 关闭RGB LED
 void BSP_RGB_LED_Off(void);
 

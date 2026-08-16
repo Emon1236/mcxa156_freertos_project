@@ -25,3 +25,31 @@ void APP_RGB_Task(void *pvParameters){
     }
     //使用vTaskDelayUntil()使用固定的时间基准，确保每次任务执行的时间间隔为RGB_TASK_STACK_PERIOD_MS毫秒。
 }
+
+void APP_R_500ms_Task(void *pvParameters){
+    TickType_t xLastWakeTime;
+    (void) pvParameters;
+
+    xLastWakeTime = xTaskGetTickCount();
+
+    for(;;){
+        BSP_RGB_LED_R_On();
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(500U));
+        BSP_RGB_LED_R_Off();
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(500U));
+    }
+}
+
+void APP_G_2S_Task(void *pvParameters){
+    TickType_t xLastWakeTime;
+    (void) pvParameters;
+
+    xLastWakeTime = xTaskGetTickCount();
+
+    for(;;){
+        BSP_RGB_LED_G_On();
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(2000U));
+        BSP_RGB_LED_G_Off();
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(2000U));
+    }
+}

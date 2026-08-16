@@ -68,3 +68,21 @@ void BSP_RGB_SetColor(bsp_rgb_led_t color){
     }
 }
 
+void BSP_RGB_LED_R_On(void){
+    rgb_led_write(BOARD_LED_RED_GPIO, BOARD_LED_RED_GPIO_PIN, LOGIC_LED_ON);
+}
+void BSP_RGB_LED_R_Off(void){
+    rgb_led_write(BOARD_LED_RED_GPIO, BOARD_LED_RED_GPIO_PIN, LOGIC_LED_OFF);
+}
+void BSP_RGB_LED_G_On(void){
+    rgb_led_write(BOARD_LED_GREEN_GPIO, BOARD_LED_GREEN_GPIO_PIN, LOGIC_LED_ON);
+}
+void BSP_RGB_LED_G_Off(void){
+    rgb_led_write(BOARD_LED_GREEN_GPIO, BOARD_LED_GREEN_GPIO_PIN, LOGIC_LED_OFF);
+}
+void BSP_RGB_LED_B_On(void){
+    rgb_led_write(BOARD_LED_BLUE_GPIO, BOARD_LED_BLUE_GPIO_PIN, LOGIC_LED_ON);
+}
+void BSP_RGB_LED_B_Off(void){
+    rgb_led_write(BOARD_LED_BLUE_GPIO, BOARD_LED_BLUE_GPIO_PIN, LOGIC_LED_OFF);
+}
