@@ -26,7 +26,7 @@ mcux_add_source(
             bsp/bsp_spi.h
             bsp/bsp_oled_12864.c
             bsp/bsp_oled_12864.h
-            bsp/bsp_oled_data.c
+            bsp/bsp_oled_ASCII.c
             bsp/bsp_oled_data.h
             
 )

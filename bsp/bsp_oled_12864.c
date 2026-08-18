@@ -8,7 +8,6 @@ GND-GND                         D/C-CS(P1_3)
 D0(SCK)-SCK(P1_1)               A0-P1_13
 D1(MOSI)-SDO(P1_0)              A1-P1_12
 *---------------------------------------------------
-
 *----------------------片段地址映射表----------------
 A0:A1           译码器Y0~Y3         硬件对应
 0:0             0111                0号屏(左上角) 
@@ -16,7 +15,28 @@ A0:A1           译码器Y0~Y3         硬件对应
 1:0             1101                2号屏(左下角)
 1:1             1110                3号屏(右下角)
 *---------------------------------------------------
-
+*----------------------数据存储格式-------------------
+ * 纵向8点，高位在下，先从左到右，再从上到下
+ **      B0                  B0 B0
+  *      B1                  B1 B1
+  *      B2       0-127      B2 B2
+  *      B3  ------------->  B3 B3 --
+  *      B4                  B4 B4  |
+  *      B5                  B5 B5  |
+  *      B6                  B6 B6  |
+  *      B7                  B7 B7  |
+  *                                 |
+  *  --------------------------------
+  *  |   
+  *  |   B0                  B0 B0
+  *  |   B1                  B1 B1
+  *  |   B2                  B2 B2
+  *  --> B3  ------------->  B3 B3
+  *      B4                  B4 B4
+  *      B5                  B5 B5
+  *      B6                  B6 B6
+  *      B7                  B7 B7
+  * 以ASCII字模为例，6x8点阵，宽6高8，纵向8行，每列1字节，共6列。
 测试说明：0号屏幕顶层1/3区域存在坏点，按当前硬件分布，镜像后为底部1/3区域失能
 */
 #include "bsp/bsp_oled_12864.h"
@@ -28,6 +48,7 @@ A0:A1           译码器Y0~Y3         硬件对应
 #include "fsl_clock.h"
 #include "fsl_reset.h"
 #include <string.h>
+#include <assert.h> //用于断言字体传入的合法性
 
 /* RES: 原SDI(P1_2)，D/C: 原CS/PCS0(P1_3) */
 #define OLED_RES_GPIO GPIO1
@@ -50,18 +71,15 @@ static uint8_t s_oledBuffer[OLED_HEIGHT / 8U][OLED_WIDTH];
 
 static void oled_gpio_pin_init(void)
 {
-    CLOCK_EnableClock(kCLOCK_GatePORT1);
-    CLOCK_EnableClock(kCLOCK_GatePORT2);
-    CLOCK_EnableClock(kCLOCK_GatePORT3);
-    CLOCK_EnableClock(kCLOCK_GateGPIO1);
+    CLOCK_EnableClock(kCLOCK_GateGPIO1);//使能GPIO时钟
     CLOCK_EnableClock(kCLOCK_GateGPIO2);
-    CLOCK_EnableClock(kCLOCK_GateGPIO3);
-    RESET_ReleasePeripheralReset(kPORT1_RST_SHIFT_RSTn);
-    RESET_ReleasePeripheralReset(kPORT2_RST_SHIFT_RSTn);
-    RESET_ReleasePeripheralReset(kPORT3_RST_SHIFT_RSTn);
-    RESET_ReleasePeripheralReset(kGPIO1_RST_SHIFT_RSTn);
+    CLOCK_EnableClock(kCLOCK_GatePORT1);//使能PORT时钟
+    CLOCK_EnableClock(kCLOCK_GatePORT2);
+
+    RESET_ReleasePeripheralReset(kGPIO1_RST_SHIFT_RSTn);//释放GPIO复位
     RESET_ReleasePeripheralReset(kGPIO2_RST_SHIFT_RSTn);
-    RESET_ReleasePeripheralReset(kGPIO3_RST_SHIFT_RSTn);
+    RESET_ReleasePeripheralReset(kPORT1_RST_SHIFT_RSTn);//释放PORT复位
+    RESET_ReleasePeripheralReset(kPORT2_RST_SHIFT_RSTn);
 
     const port_pin_config_t gpio_pin_config = {
         kPORT_PullUp, kPORT_LowPullResistor, kPORT_FastSlewRate,
@@ -110,23 +128,23 @@ void BSP_OLED_Init(uint8_t index)
     oled_gpio_pin_init();
     oled_reset();
     BSP_OLED_SelectPanel(index);
-
-    oled_write_command(0xAE);
-    oled_write_command(0xD5); oled_write_command(0x80);
-    oled_write_command(0xA8); oled_write_command(0x3F);
-    oled_write_command(0xD3); oled_write_command(0x00);
-    oled_write_command(0x40);
-    oled_write_command(0x8D); oled_write_command(0x14);
-    oled_write_command(0x20); oled_write_command(0x00);
-    oled_write_command(0xA1);
-    oled_write_command(0xC8);
-    oled_write_command(0xDA); oled_write_command(0x12);
-    oled_write_command(0x81); oled_write_command(0xCF);
-    oled_write_command(0xD9); oled_write_command(0xF1);
-    oled_write_command(0xDB); oled_write_command(0x40);
-    oled_write_command(0xA4);
-    oled_write_command(0xA6);
-    oled_write_command(0xAF);
+    //OLED初始化指令
+    oled_write_command(0xAE);                           //设置显示开关，AE关闭，AF开启
+    oled_write_command(0xD5); oled_write_command(0x80); //设置时钟分频因子，震荡频率，00~FF
+    oled_write_command(0xA8); oled_write_command(0x3F); //设置多路复用比率，00~3F
+    oled_write_command(0xD3); oled_write_command(0x00); //设置显示偏移，00~7F
+    oled_write_command(0x40);                           //设置显示开始行，40~7F
+    oled_write_command(0x8D); oled_write_command(0x14); //设置电荷泵，14开启，10关闭
+    //oled_write_command(0x20); oled_write_command(0x00); //内存地址模式？
+    oled_write_command(0xA1);                           //设置左右方向，A1正常，A0左右翻转
+    oled_write_command(0xC8);                           //设置上下方向，C8正常，C0上下翻转
+    oled_write_command(0xDA); oled_write_command(0x12); //设置COM引脚硬件配置，12正常，02反向
+    oled_write_command(0x81); oled_write_command(0xCF); //设置对比度，00~FF
+    oled_write_command(0xD9); oled_write_command(0xF1); //设置预充电周期，F1正常，22~F1
+    oled_write_command(0xDB); oled_write_command(0x40); //设置VCOMH取消选择级别，
+    oled_write_command(0xA4);                           //设置全局显示开启，A4正常，A5全点亮
+    oled_write_command(0xA6);                           //设置正常/反色显示，A6正常，A7反相
+    oled_write_command(0xAF);                           //设置显示开关，AE关闭，AF开启
 
     BSP_OLED_Clear();
     BSP_OLED_Refresh();
@@ -192,69 +210,147 @@ void BSP_OLED_DrawLine(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
     }
 }
 
-void BSP_OLED_ShowChar(uint8_t x, uint8_t y, char ch)
-{
-    for (uint8_t i = 0U; i < g_asciiFont6x8Count; i++)
-    {
-        if (g_asciiFont6x8[i].ch == ch)
-        {
-            for (uint8_t col = 0U; col < 6U; col++)
-            {
-                uint8_t colData = g_asciiFont6x8[i].data[col];
-                for (uint8_t row = 0U; row < 8U; row++)
-                {
-                    BSP_OLED_DrawPoint((uint8_t)(x + col), (uint8_t)(y + row),
-                                       (colData >> row) & 0x01U);
+
+/**
+ * 函    数：OLED显示图像
+ * 参    数：X 指定图像左上角的横坐标，范围：0~127
+ * 参    数：Y 指定图像左上角的纵坐标，范围：0~63
+ * 参    数：Width 指定图像的宽度，范围：0~128
+ * 参    数：Height 指定图像的高度，范围：0~64
+ * 参    数：支持任意高度，不要求必须是8的整数倍
+ * 返 回 值：无
+ * 说    明：调用此函数后，要想真正地呈现在屏幕上，还需调用更新函数
+ */
+void BSP_OLED_ShowImage(uint8_t x, uint8_t y, uint8_t width, uint8_t height, const uint8_t *Image){
+    uint8_t pageCount;
+
+    assert(Image != NULL);
+    assert(width > 0U && width <= OLED_WIDTH);
+    assert(height > 0U && height <= OLED_HEIGHT);
+
+    if ((Image == NULL) || (width == 0U) || (height == 0U)){
+        return;
+    }
+
+    pageCount = (uint8_t)((height + 7u) / 8u); //计算需要的页数，向上取整
+
+    for(uint8_t page = 0U; page < pageCount; page++){
+        for(uint8_t col = 0U; col < width; col++){
+            uint16_t dataIndex = (uint16_t)page * width + col;
+            uint8_t imageData = Image[dataIndex];
+            for(uint8_t bit =0U; bit < 8U; bit++){
+                uint16_t imageX = (uint16_t)x + col;
+                uint16_t imageY = (uint16_t)y + page * 8U + bit;
+                //最后一页可能不足8行，例如高度为10时，第二页只有2行有效数据
+                if(((uint16_t)page * 8U + bit) >= height){
+                    break; //跳出当前页的循环，避免越界
                 }
+                // 支持图片在屏幕边缘被裁剪，不会访问帧缓冲区之外的区域。
+                if((imageX >= OLED_WIDTH) || (imageY >= OLED_HEIGHT)){
+                    continue; //跳过超出屏幕范围的像素
+                }
+                BSP_OLED_DrawPoint((uint8_t)imageX, (uint8_t)imageY, (imageData >> bit) & 0x01U);
             }
-            return;
         }
     }
 }
 
-void BSP_OLED_ShowString(uint8_t x, uint8_t y, const char *str)
-{
-    uint8_t cursor = x;
-    while (*str != '\0')
-    {
-        BSP_OLED_ShowChar(cursor, y, *str);
-        cursor = (uint8_t)(cursor + 6U);
+void BSP_OLED_ShowChar(uint8_t x, uint8_t y, char ch, oled_font_t font){
+    const uint8_t *glyph;
+    uint8_t glyphIndex;
+
+    assert(font == OLED_FONT_6X8 || font == OLED_FONT_8X16);//断言字体传入的合法性
+    //避免正式版依旧传入不合法字体类型
+    if((font != OLED_FONT_6X8) && (font != OLED_FONT_8X16)){
+        return; //字体不合法，直接返回
+    }
+    if((ch < OLED_ASCII_FIRST_CHAR) ||(ch > OLED_ASCII_LAST_CHAR)){
+        ch = '?';
+    } // 如果传入空格到"~"之外的字符，则显示问号
+    glyphIndex = (uint8_t)(ch - OLED_ASCII_FIRST_CHAR);
+    if(font == OLED_FONT_6X8){
+        glyph = &OLED_F6X8[(uint16_t)glyphIndex * 6U ];//每个6x8字符占6字节
+        BSP_OLED_ShowImage(x, y, 6U, 8U, glyph);
+    }else{
+        glyph = &OLED_F8X16[(uint16_t)glyphIndex * 16U ];//每个8x16字符占16字节
+        BSP_OLED_ShowImage(x, y, 8U, 16U, glyph);
+    }
+}
+
+void BSP_OLED_ShowString(uint8_t x, uint8_t y, const char *str, oled_font_t font){
+    uint8_t charWidth;
+    uint8_t charHeight;
+    uint8_t cursorX = x;
+    uint8_t cursorY = y;
+
+    assert(str != NULL);
+    assert((font == OLED_FONT_6X8) || (font == OLED_FONT_8X16));
+
+    if (str == NULL){
+        return;
+    }
+
+    if (font == OLED_FONT_6X8){
+        charWidth  = 6U;
+        charHeight = 8U;
+    }
+    else if (font == OLED_FONT_8X16){
+        charWidth  = 8U;
+        charHeight = 16U;
+    }
+    else{
+        return;
+    }
+    while(*str != '\0'){
+        if(*str == '\n'){
+            cursorX = x;
+            cursorY = (uint8_t)(cursorY + charHeight);
+            str++;
+            continue;
+        }
+        if((cursorX + charWidth) > OLED_WIDTH){ //当前行放不下则换行
+            cursorX = x;
+            cursorY = (uint8_t)(cursorY + charHeight);
+        }
+        if((uint16_t)cursorY + charHeight > OLED_HEIGHT){ //超出屏幕高度则停止显示
+            break;
+        }
+        BSP_OLED_ShowChar(cursorX, cursorY, *str, font);
+        cursorX = (uint8_t)(cursorX + charWidth);
         str++;
     }
 }
 
-void BSP_OLED_ShowNumber(uint8_t x, uint8_t y, uint32_t num)
-{
-    char buf[10];
-    uint8_t len = 0U;
+void BSP_OLED_ShowNumber(uint8_t x, uint8_t y, uint32_t num, oled_font_t font){
+    char digits[10];
+    uint8_t length = 0U;
+    uint8_t charWidth;  
 
-    if (num == 0U)
-    {
-        buf[len++] = '0';
+    assert((font == OLED_FONT_6X8) || (font == OLED_FONT_8X16));
+
+    if (font == OLED_FONT_8X16){
+        charWidth  = 8U;
     }
-    while (num > 0U && len < sizeof(buf))
-    {
-        buf[len++] = (char)('0' + (num % 10U));
+    else if (font == OLED_FONT_6X8){
+        charWidth  = 6U;
+    }
+    else{
+        return;
+    }
+    if (num == 0U){
+        BSP_OLED_ShowChar(x, y, '0', font);
+        return;
+    }
+    while (num > 0U && length < sizeof(digits)){
+        digits[length++] = (char)('0' + (num % 10U));
         num /= 10U;
     }
-    /* 数字是逆序生成的，从右往左显示实现从左到右正确顺序 */
-    for (uint8_t i = 0U; i < len; i++)
-    {
-        BSP_OLED_ShowChar((uint8_t)(x + (len - 1U - i) * 6U), y, buf[i]);
+    for (uint8_t i = 0U; i < length; i++){
+        uint16_t drawX = (uint16_t)x + (uint16_t)i *charWidth;
+        if (drawX + charWidth > OLED_WIDTH){
+            break; //超出屏幕宽度则停止显示
+        }
+        BSP_OLED_ShowChar((uint8_t)drawX, y, digits[length - 1U - i], font);
     }
 }
 
-void BSP_OLED_ShowChinese(uint8_t x, uint8_t y, uint8_t fontIndex)
-{
-    const uint8_t *data = g_chineseFont16x16[fontIndex].data;
-    for (uint8_t row = 0U; row < 16U; row++)
-    {
-        uint8_t high = data[row * 2U];
-        uint8_t low  = data[row * 2U + 1U];
-        for (uint8_t col = 0U; col < 8U; col++)
-        {
-            BSP_OLED_DrawPoint((uint8_t)(x + col), (uint8_t)(y + row), (high >> (7U - col)) & 0x01U);
-            BSP_OLED_DrawPoint((uint8_t)(x + 8U + col), (uint8_t)(y + row), (low >> (7U - col)) & 0x01U);
-        }
-    }
-}
