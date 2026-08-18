@@ -41,9 +41,9 @@ static void bsp_spi_pin_init(void){
 
     PORT_SetPinConfig(PORT1, 0U, &spi_pin_config); /* P1_0  LPSPI0_SDO  */
     PORT_SetPinConfig(PORT1, 1U, &spi_pin_config); /* P1_1  LPSPI0_SCK  */
-    PORT_SetPinConfig(PORT1, 3U, &spi_pin_config); /* P1_3  LPSPI0_PCS0 */
+    //PORT_SetPinConfig(PORT1, 3U, &spi_pin_config); /* P1_3  LPSPI0_PCS0 */
 
-    PORT_SetPinConfig(PORT1, 2U, &spi_pin_config); /* P1_2  LPSPI0_SDI 用于SPI通信回环测试 */
+    //PORT_SetPinConfig(PORT1, 2U, &spi_pin_config); /* P1_2  LPSPI0_SDI 用于SPI通信回环测试 */
 }
 
 void BSP_SPI_Init(void)
