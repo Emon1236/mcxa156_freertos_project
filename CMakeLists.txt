@@ -19,8 +19,16 @@ include(${board}/board_files.cmake)
 mcux_add_source(
     SOURCES freertos_hello.c
             app/app_rgb_task.c
-            bsp/bsp_rgb_led.c
             app/app_rgb_task.h
+            bsp/bsp_rgb_led.c
+            bsp/bsp_rgb_led.h
+            bsp/bsp_spi.c
+            bsp/bsp_spi.h
+            bsp/bsp_oled_12864.c
+            bsp/bsp_oled_12864.h
+            bsp/bsp_oled_ASCII.c
+            bsp/bsp_oled_data.h
+            
 )
 
 mcux_add_include(
