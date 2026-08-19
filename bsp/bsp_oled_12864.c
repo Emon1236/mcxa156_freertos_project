@@ -68,7 +68,7 @@ A0:A1           译码器Y0~Y3         硬件对应
 
 /* 先只测试单屏，帧缓冲复用；后续扩展4屏可改成 s_oledBuffer[OLED_PANEL_COUNT][...] */
 static uint8_t s_oledBuffer[OLED_HEIGHT / 8U][OLED_WIDTH];
-
+/***********************************源文件内部函数**********************************************/
 static void oled_gpio_pin_init(void)
 {
     CLOCK_EnableClock(kCLOCK_GateGPIO1);//使能GPIO时钟
@@ -100,19 +100,42 @@ static void oled_gpio_pin_init(void)
     GPIO_PinInit(OLED_A1_GPIO, OLED_A1_PIN, &out_config);
 }
 
-void BSP_OLED_SelectPanel(uint8_t index)
-{
-    /* 译码表: A0:A1=00->Y0 01->Y1 10->Y2 11->Y3，index即(A0<<1)|A1 */
-    GPIO_PinWrite(OLED_A0_GPIO, OLED_A0_PIN, (index >> 1U) & 0x01U);
-    GPIO_PinWrite(OLED_A1_GPIO, OLED_A1_PIN, index & 0x01U);
-}
-
 static void oled_write_command(uint8_t cmd)
 {
     GPIO_PinWrite(OLED_DC_GPIO, OLED_DC_PIN, 0U);
     BSP_SPI_WriteByte(cmd);
 }
+//根据物理安装位置针对性发送初始化指令
+static void oled_controller_init(uint8_t panelIndex){
+    if (panelIndex >= OLED_PANEL_COUNT){
+        return;
+    }
+    BSP_OLED_SelectPanel(panelIndex);
 
+    oled_write_command(0xAE);
+    oled_write_command(0xD5);oled_write_command(0x80);
+    oled_write_command(0xA8);oled_write_command(0x3F);
+    oled_write_command(0xD3);oled_write_command(0x00);
+    oled_write_command(0x40);
+    oled_write_command(0x8D);oled_write_command(0x14);
+
+    //0,1屏幕的物理安装方向相反，需要初始化时左右和上下翻转
+    if (panelIndex == 0U || panelIndex == 1U){
+        oled_write_command(0xA0);
+        oled_write_command(0xC0);
+    }else{
+        oled_write_command(0xA1);
+        oled_write_command(0xC8);
+    }
+
+    oled_write_command(0xDA);oled_write_command(0x12);    
+    oled_write_command(0x81);oled_write_command(0xCF);
+    oled_write_command(0xD9);oled_write_command(0xF1);
+    oled_write_command(0xDB);oled_write_command(0x40);
+    oled_write_command(0xA4);
+    oled_write_command(0xA6);
+    oled_write_command(0xAF);
+}
 
 static void oled_reset(void)
 {
@@ -123,31 +146,51 @@ static void oled_reset(void)
     for (volatile uint32_t i = 0U; i < 100000U; i++) {}
 }
 
-void BSP_OLED_Init(uint8_t index)
+void BSP_OLED_SelectPanel(uint8_t index)
 {
-    oled_gpio_pin_init();
-    oled_reset();
-    BSP_OLED_SelectPanel(index);
-    //OLED初始化指令
-    oled_write_command(0xAE);                           //设置显示开关，AE关闭，AF开启
-    oled_write_command(0xD5); oled_write_command(0x80); //设置时钟分频因子，震荡频率，00~FF
-    oled_write_command(0xA8); oled_write_command(0x3F); //设置多路复用比率，00~3F
-    oled_write_command(0xD3); oled_write_command(0x00); //设置显示偏移，00~7F
-    oled_write_command(0x40);                           //设置显示开始行，40~7F
-    oled_write_command(0x8D); oled_write_command(0x14); //设置电荷泵，14开启，10关闭
-    //oled_write_command(0x20); oled_write_command(0x00); //内存地址模式？
-    oled_write_command(0xA1);                           //设置左右方向，A1正常，A0左右翻转
-    oled_write_command(0xC8);                           //设置上下方向，C8正常，C0上下翻转
-    oled_write_command(0xDA); oled_write_command(0x12); //设置COM引脚硬件配置，12正常，02反向
-    oled_write_command(0x81); oled_write_command(0xCF); //设置对比度，00~FF
-    oled_write_command(0xD9); oled_write_command(0xF1); //设置预充电周期，F1正常，22~F1
-    oled_write_command(0xDB); oled_write_command(0x40); //设置VCOMH取消选择级别，
-    oled_write_command(0xA4);                           //设置全局显示开启，A4正常，A5全点亮
-    oled_write_command(0xA6);                           //设置正常/反色显示，A6正常，A7反相
-    oled_write_command(0xAF);                           //设置显示开关，AE关闭，AF开启
+    /* 译码表: A0:A1=00->Y0 01->Y1 10->Y2 11->Y3，index即(A0<<1)|A1 */
+    GPIO_PinWrite(OLED_A0_GPIO, OLED_A0_PIN, (index >> 1U) & 0x01U);
+    GPIO_PinWrite(OLED_A1_GPIO, OLED_A1_PIN, index & 0x01U);
+}
 
-    BSP_OLED_Clear();
-    BSP_OLED_Refresh();
+// void BSP_OLED_Init(uint8_t index)
+// {
+//     oled_gpio_pin_init();
+//     oled_reset();
+//     BSP_OLED_SelectPanel(index);
+//     //OLED初始化指令
+//     oled_write_command(0xAE);                           //设置显示开关，AE关闭，AF开启
+//     oled_write_command(0xD5); oled_write_command(0x80); //设置时钟分频因子，震荡频率，00~FF
+//     oled_write_command(0xA8); oled_write_command(0x3F); //设置多路复用比率，00~3F
+//     oled_write_command(0xD3); oled_write_command(0x00); //设置显示偏移，00~7F
+//     oled_write_command(0x40);                           //设置显示开始行，40~7F
+//     oled_write_command(0x8D); oled_write_command(0x14); //设置电荷泵，14开启，10关闭
+//     //oled_write_command(0x20); oled_write_command(0x00); //内存地址模式？
+//     oled_write_command(0xA1);                           //设置左右方向，A1正常，A0左右翻转
+//     oled_write_command(0xC8);                           //设置上下方向，C8正常，C0上下翻转
+//     oled_write_command(0xDA); oled_write_command(0x12); //设置COM引脚硬件配置，12正常，02反向
+//     oled_write_command(0x81); oled_write_command(0xCF); //设置对比度，00~FF
+//     oled_write_command(0xD9); oled_write_command(0xF1); //设置预充电周期，F1正常，22~F1
+//     oled_write_command(0xDB); oled_write_command(0x40); //设置VCOMH取消选择级别，
+//     oled_write_command(0xA4);                           //设置全局显示开启，A4正常，A5全点亮
+//     oled_write_command(0xA6);                           //设置正常/反色显示，A6正常，A7反相
+//     oled_write_command(0xAF);                           //设置显示开关，AE关闭，AF开启
+
+//     BSP_OLED_Clear();
+//     BSP_OLED_Refresh();
+// }
+void BSP_OLED_Init(uint8_t index){
+    if (index >= OLED_PANEL_COUNT){
+        return;
+    }
+
+    oled_gpio_pin_init();   //引脚初始化
+    oled_reset();           //复位屏幕
+    oled_controller_init(index);//根据物理安装位置初始化屏幕控制器
+
+    BSP_OLED_Clear();       //清空缓冲区
+    BSP_OLED_SelectPanel(index);//更新译码电路，选择屏幕
+    BSP_OLED_Refresh();     //刷新显示，将缓冲区数据写入屏幕
 }
 
 void BSP_OLED_Clear(void)
@@ -353,4 +396,23 @@ void BSP_OLED_ShowNumber(uint8_t x, uint8_t y, uint32_t num, oled_font_t font){
         BSP_OLED_ShowChar((uint8_t)drawX, y, digits[length - 1U - i], font);
     }
 }
+
+
+/*********************************************************************************/
+//新增四屏初始化
+void BSP_OLED_InitAll(void){
+    oled_gpio_pin_init();   //引脚初始化
+    oled_reset();           //四块屏幕共享RES复位，统一复位一次
+
+    for(uint8_t panel=0U; panel < OLED_PANEL_COUNT; panel++){
+        oled_controller_init(panel);//译码电路无法全选，因此依次选择和初始化屏幕
+    }
+    BSP_OLED_Clear();       //清空缓冲区
+    for (uint8_t panel = 0U;panel < OLED_PANEL_COUNT; panel++){
+        BSP_OLED_SelectPanel(panel);//更新译码电路，选择屏幕
+        BSP_OLED_Refresh();     //刷新显示，将缓冲区数据写入屏幕
+    }
+}
+
+
 

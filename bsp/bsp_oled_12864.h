@@ -36,6 +36,10 @@ void BSP_OLED_ShowChar(uint8_t x, uint8_t y, char ch, oled_font_t font);        
 void BSP_OLED_ShowString(uint8_t x, uint8_t y, const char *str, oled_font_t font);        //显示字符串函数，x:0~127，y:0~63，str:要显示的字符串，font:字体类型
 void BSP_OLED_ShowNumber(uint8_t x, uint8_t y, uint32_t num, oled_font_t font);           //显示数字函数，x:0~127，y:0~63，num:要显示的数字，font:字体类型
 
+
+/******************************************************************************/
+void BSP_OLED_InitAll(void);  //初始化4块屏幕控制器，只需要执行一次
+
 #ifdef __cplusplus
 }
 #endif

@@ -32,6 +32,8 @@ mcux_add_source(
             bsp/bsp_button.h
             bsp/bsp_buzzer.c
             bsp/bsp_buzzer.h
+            bsp/bsp_4oleds.c
+            bsp/bsp_4oleds.h
             
 )
 
