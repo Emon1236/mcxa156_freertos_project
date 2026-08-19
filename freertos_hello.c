@@ -17,10 +17,20 @@
 #include "bsp/bsp_oled_12864.h"
 #include "bsp/bsp_oled_data.h"
 #include "bsp/bsp_button.h"
+#include "bsp/bsp_buzzer.h"
+
 #include <stdint.h>
 
 #define BUTTON_OLED_PANEL_INDEX 3U
 #define BUTTON_SCAN_PERIOD_MS   10U
+
+static const uint16_t buttonToneHz[BSP_BUTTON_COUNT] =
+{
+    2500U,
+    3000U,
+    3500U,
+    4000U
+};//按键映射蜂鸣器驱动频率
 
 static void Button_OLED_DrawCounts(const uint8_t buttonCount[BSP_BUTTON_COUNT])
 {
@@ -55,6 +65,7 @@ static void Button_CountOLEDTask(void *param)
 
     BSP_SPI_Init();
     BSP_Button_Init();
+    BSP_Buzzer_Init();
     BSP_OLED_Init(BUTTON_OLED_PANEL_INDEX);
 
     Button_OLED_DrawCounts(buttonCount);
@@ -71,7 +82,7 @@ static void Button_CountOLEDTask(void *param)
                 if ((pressedEvents & (1UL << i)) != 0U)
                 {
                     buttonCount[i]++;
-
+                    BSP_Buzzer_PlayTone(buttonToneHz[i], 50U);
                     PRINTF("Button %u count: %u\r\n",
                            (unsigned int)(i + 1U),
                            (unsigned int)buttonCount[i]);
