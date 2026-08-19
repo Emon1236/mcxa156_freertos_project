@@ -28,6 +28,10 @@ mcux_add_source(
             bsp/bsp_oled_12864.h
             bsp/bsp_oled_ASCII.c
             bsp/bsp_oled_data.h
+            bsp/bsp_button.c
+            bsp/bsp_button.h
+            bsp/bsp_buzzer.c
+            bsp/bsp_buzzer.h
             
 )
 
