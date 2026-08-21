@@ -272,3 +272,151 @@ void BSP_4OLEDs_Refresh(void){
     }
 }
 
+void BSP_4OLEDs_FillRectangle(uint16_t x,uint16_t y,uint16_t width,uint16_t height,uint8_t fill){
+    uint16_t drawWidth;
+    uint16_t drawHeight;
+
+    if((width == 0u) || (height == 0U)){
+        return;
+    }
+    if((x >= OLED4_WIDTH) || (y >= OLED4_HEIGHT)){
+        return;
+    }
+
+    //对超出虚拟屏幕边界的部分进行裁剪
+    drawWidth = width;
+    drawHeight = height;
+    if(drawWidth > (OLED4_WIDTH - x)){
+        drawWidth = (uint16_t)(OLED4_WIDTH - x);
+    }
+    if(drawHeight > (OLED4_HEIGHT - y)){
+        drawHeight = (uint16_t)(OLED4_HEIGHT - y);
+    }
+    for(uint16_t py = 0U; py < drawHeight; py++){
+        for(uint16_t px = 0U;px < drawWidth; px++){
+            BSP_4OLEDs_DrawPoint((uint16_t)(x + px),(uint16_t)(y + py),fill);
+        }
+    }
+}
+
+void BSP_4OLEDs_DrawRectangle(uint16_t x, uint16_t y, uint16_t width, uint16_t height){
+    uint16_t drawWidth;
+    uint16_t drawHeight;
+    uint16_t right;
+    uint16_t bottom;
+
+    if((width == 0u) || (height == 0U)){
+        return;
+    }
+    if((x >= OLED4_WIDTH) || (y >= OLED4_HEIGHT)){
+        return;
+    } 
+    //将矩形裁剪到虚拟屏幕范围内
+    drawWidth = width;
+    drawHeight = height;
+    if(drawWidth > (OLED4_WIDTH - x)){
+        drawWidth = (uint16_t)(OLED4_WIDTH - x);
+    }
+    if(drawHeight > (OLED4_HEIGHT - y)){
+        drawHeight = (uint16_t)(OLED4_HEIGHT - y);
+    }
+    right = (uint16_t)(x + drawWidth -1U);
+    bottom = (uint16_t)(y + drawHeight -1U);
+
+    BSP_4OLEDs_DrawLine(x,y, right,y);
+    BSP_4OLEDs_DrawLine(x,bottom, right,bottom);
+    BSP_4OLEDs_DrawLine(x,y, x,bottom);
+    BSP_4OLEDs_DrawLine(right,y, right,bottom);
+}
+//显示反色字符
+/*
+ * 不能简单地先填充白色背景，再调用普通ShowChar，
+ * 因为普通ShowChar仍然会写入正常字模。
+ * 这里先把字模逐字节取反，再调用ShowImage。
+*/
+void BSP_4OLEDs_ShowCharInverted(uint16_t x, uint16_t y, char ch, oled_font_t font){
+    const uint8_t *sourceGlyph;
+    uint8_t invertedGlyph[16];
+
+    uint8_t charCode;
+    uint8_t glyphIndex;
+    uint8_t glyphWidth;
+    uint8_t glyphHeight;
+    uint8_t glyphSize;  
+    
+    assert((font == OLED_FONT_6X8) || (font == OLED_FONT_8X16));
+    if ((font != OLED_FONT_6X8) && (font != OLED_FONT_8X16)){
+        return;
+    }
+    charCode = (uint8_t)ch;
+    // 非法字符使用问号替代
+    if((charCode < OLED_ASCII_FIRST_CHAR) || (charCode > OLED_ASCII_LAST_CHAR)){
+        charCode = '?';
+    }
+    glyphIndex = (uint8_t)(charCode - OLED_ASCII_FIRST_CHAR);
+    if(font == OLED_FONT_6X8){
+        glyphWidth = 6U;
+        glyphHeight = 8U;
+        glyphSize = 6U;
+
+        sourceGlyph = &OLED_F6X8[(uint16_t)glyphIndex * glyphSize];
+    }
+    else{
+        glyphWidth = 8U;
+        glyphHeight = 16U;
+        glyphSize = 16U;
+
+        sourceGlyph = &OLED_F8X16[(uint16_t)glyphIndex * glyphSize];
+    }
+    //将原始字模中的每个字节逐位取反
+    for(uint8_t i = 0U; i < glyphSize; i++){
+        invertedGlyph[i] = (uint8_t)~sourceGlyph[i];
+    }
+    BSP_4OLEDs_ShowImage(x, y, glyphWidth, glyphHeight, invertedGlyph);
+}
+//反色字符串
+void BSP_4OLEDs_ShowStringInverted(uint16_t x, uint16_t y, const char *str, oled_font_t font){
+    uint16_t cursorX = x;
+    uint16_t cursorY = y;
+
+    uint8_t charWidth;
+    uint8_t charHeight; 
+    
+    assert((font == OLED_FONT_6X8) || (font == OLED_FONT_8X16));
+    if ((font != OLED_FONT_6X8) && (font != OLED_FONT_8X16)){
+        return;
+    }
+    if(str == NULL){
+        return;
+    }
+    if(font == OLED_FONT_6X8){
+        charWidth = 6U;
+        charHeight = 8U;
+    }
+    else if(font == OLED_FONT_8X16){
+        charWidth = 8U;
+        charHeight = 16U;
+    }else{
+        return;
+    }
+    while(*str != '\0'){
+        if(*str == '\n'){
+            cursorX = x;
+            cursorY = (uint16_t)(cursorY + charHeight);
+            str++;
+            continue;
+        }
+        //当前行剩余空间不足时自动换行。
+        if((cursorX + charWidth) > OLED4_WIDTH){
+            cursorX = x;
+            cursorY = (uint16_t)(cursorY + charHeight);
+        }
+        //剩余高度不足，停止显示
+        if((cursorY + charHeight) > OLED4_HEIGHT){
+            break;
+        }
+        BSP_4OLEDs_ShowCharInverted(cursorX, cursorY, *str, font);
+        cursorX = (uint16_t)(cursorX + charWidth);
+        str++;
+    }
+}
