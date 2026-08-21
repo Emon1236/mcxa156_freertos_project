@@ -10,137 +10,107 @@
 #include "board.h"
 #include "app.h"
 
-#include "bsp/bsp_spi.h"
-#include "bsp/bsp_4oleds.h"
+#include "bsp/bsp_i3c.h"
 
+#define I3C_TEST_STATIC_ADDRESS  0x48U
+#define I3C_TEST_DYNAMIC_ADDRESS 0x08U
 
-#include "bsp/bsp_button.h"
-#include "bsp/bsp_buzzer.h"
+#define P3T1755_CONFIG_REGISTER  0x01U
 
-#include "app/menu.h"
-
-#define BUTTON_TASK_PERIOD_MS 10U
-#define MENU_QUEUE_LENGTH     8U
-
-#define BUTTON_TASK_PRIORITY  (tskIDLE_PRIORITY + 2U)
-#define MENU_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
-
-#define BUTTON_TASK_STACK_SIZE \
-    (configMINIMAL_STACK_SIZE + 64U)
-
-#define MENU_TASK_STACK_SIZE \
-    (configMINIMAL_STACK_SIZE + 256U)
-
-static QueueHandle_t s_menuKeyQueue;
-
-/* 向菜单队列发送一个按键事件。 */
-static void Menu_SendKey(menu_key_t key)
+static status_t APP_I3C_SimpleTest(void)
 {
+    status_t status;
+    uint8_t configValue = 0U;
+
+    status = BSP_I3C_Init();
+
+    if (status != kStatus_Success)
+    {
+        PRINTF("I3C init failed, status=%d\r\n",
+               (int)status);
+        return status;
+    }
+
+    PRINTF("I3C init success\r\n");
+    PRINTF("I3C source clock: %u Hz\r\n",
+           (unsigned int)BSP_I3C_GetClockFrequency());
+
     /*
-     * 等待时间为0，队列满时直接放弃。
-     * 正常人工按键速度下，长度为8的队列已经足够。
+     * 清除设备上一次运行时可能保留的动态地址。
+     * 该操作只应在初始化阶段执行一次。
      */
-    (void)xQueueSend(s_menuKeyQueue, &key, 0U);
-}
+    status = BSP_I3C_ResetDynamicAddresses();
 
-static void ButtonTask(void *pvParameters)
-{
-    TickType_t lastWakeTime;
-
-    (void)pvParameters;
-
-    lastWakeTime = xTaskGetTickCount();
-
-    for (;;)
+    if (status != kStatus_Success)
     {
-        uint32_t events = BSP_Button_Scan();
-
-        if ((events & BSP_BUTTON_1_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_UP);
-        }
-
-        if ((events & BSP_BUTTON_2_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_DOWN);
-        }
-
-        if ((events & BSP_BUTTON_3_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_OK);
-        }
-
-        if ((events & BSP_BUTTON_4_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_BACK);
-        }
-
-        /*
-         * BSP_Button_Scan要求每10ms扫描一次。
-         * 连续3次检测到相同的新状态后确认按键，
-         * 因此消抖时间约为30ms。
-         */
-        vTaskDelayUntil(&lastWakeTime,
-                        pdMS_TO_TICKS(BUTTON_TASK_PERIOD_MS));
+        PRINTF("I3C RSTDAA failed, status=%d\r\n",
+               (int)status);
+        return status;
     }
-}
 
-static void MenuTask(void *pvParameters)
-{
-    menu_key_t key;
+    /*
+     * 将板载P3T1755的静态地址0x48
+     * 映射为I3C动态地址0x08。
+     */
+    status = BSP_I3C_SetDynamicAddress(
+        I3C_TEST_STATIC_ADDRESS,
+        I3C_TEST_DYNAMIC_ADDRESS);
 
-    (void)pvParameters;
-
-    Menu_Init();
-    Menu_Render();
-
-    for (;;)
+    if (status != kStatus_Success)
     {
-        /*
-         * 没有按键时一直阻塞在队列上，不消耗CPU。
-         */
-        if (xQueueReceive(s_menuKeyQueue,
-                          &key,
-                          portMAX_DELAY) == pdPASS)
-        {
-            if (Menu_HandleKey(key))
-            {
-                Menu_Render();
-            }
-        }
+        PRINTF("I3C SETDASA failed, status=%d\r\n",
+               (int)status);
+        return status;
     }
+
+    /*
+     * 使用动态地址0x08和I3C SDR模式，
+     * 读取配置寄存器0x01。
+     *
+     * 这里并没有读取温度。
+     */
+    status = BSP_I3C_ReadRegister(
+        I3C_TEST_DYNAMIC_ADDRESS,
+        P3T1755_CONFIG_REGISTER,
+        1U,
+        &configValue,
+        1U,
+        BSP_I3C_BUS_I3C_SDR);
+
+    if (status != kStatus_Success)
+    {
+        PRINTF("I3C config register read failed, status=%d\r\n",
+               (int)status);
+        return status;
+    }
+
+    PRINTF("I3C bus test success\r\n");
+    PRINTF("P3T1755 config register: 0x%02X\r\n",
+           configValue);
+
+    return kStatus_Success;
 }
 
 int main(void)
 {
+    status_t i3cStatus;
+
     BOARD_InitHardware();
 
-    BSP_SPI_Init();
-    BSP_4OLEDs_Init();
-    BSP_Button_Init();
-    BSP_Buzzer_Init();
+    i3cStatus = APP_I3C_SimpleTest();
 
-    s_menuKeyQueue =
-        xQueueCreate(MENU_QUEUE_LENGTH,
-                     sizeof(menu_key_t));
+    if (i3cStatus == kStatus_Success)
+    {
+        PRINTF("I3C test passed\r\n");
+    }
+    else
+    {
+        PRINTF("I3C test failed\r\n");
+    }
 
-    configASSERT(s_menuKeyQueue != NULL);
-
-    configASSERT(
-        xTaskCreate(ButtonTask,
-                    "button",
-                    BUTTON_TASK_STACK_SIZE,
-                    NULL,
-                    BUTTON_TASK_PRIORITY,
-                    NULL) == pdPASS);
-
-    configASSERT(
-        xTaskCreate(MenuTask,
-                    "menu",
-                    MENU_TASK_STACK_SIZE,
-                    NULL,
-                    MENU_TASK_PRIORITY,
-                    NULL) == pdPASS);
+    /*
+     * 继续初始化OLED、按键并创建FreeRTOS任务。
+     */
 
     vTaskStartScheduler();
 

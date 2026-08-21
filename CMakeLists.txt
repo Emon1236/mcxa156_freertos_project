@@ -39,6 +39,8 @@ mcux_add_source(
             app/menu.h
             app/app_settings.c
             app/app_settings.h
+            bsp/bsp_i3c.c
+            bsp/bsp_i3c.h
             
 )
 
