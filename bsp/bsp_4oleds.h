@@ -36,6 +36,15 @@ void BSP_4OLEDs_ShowChar(uint16_t x,uint16_t y,char ch,oled_font_t font);
 void BSP_4OLEDs_ShowString(uint16_t x,uint16_t y,const char *str,oled_font_t font);
 void BSP_4OLEDs_ShowNumber(uint16_t x,uint16_t y,uint32_t num,oled_font_t font);
 
+//填充矩形区域，fill=0清除，fill非0填充
+void BSP_4OLEDs_FillRectangle(uint16_t x,uint16_t y,uint16_t width,uint16_t height,uint8_t fill);
+//绘制矩形区域
+void BSP_4OLEDs_DrawRectangle(uint16_t x,uint16_t y,uint16_t width,uint16_t height);
+//显示反色字符
+void BSP_4OLEDs_ShowCharInverted(uint16_t x,uint16_t y,char ch,oled_font_t font);
+//显示反色字符串
+void BSP_4OLEDs_ShowStringInverted(uint16_t x,uint16_t y,const char *str,oled_font_t font);
+
 #ifdef __cplusplus
 }
 #endif

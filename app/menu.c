@@ -293,94 +293,6 @@ static void menu_activate_selected_item(void)
     }
 }
 
-/* 在虚拟屏幕中填充一个矩形。 */
-static void menu_fill_rectangle(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint8_t fill){
-    for (uint16_t py = 0U; py < height; py++){
-        for (uint16_t px = 0U; px < width; px++){
-            BSP_4OLEDs_DrawPoint((uint16_t)(x + px), (uint16_t)(y + py), fill);
-        }
-    }
-}
-
-/* 绘制矩形边框。 */
-static void menu_draw_rectangle(uint16_t x, uint16_t y, uint16_t width, uint16_t height){
-    uint16_t right;
-    uint16_t bottom;
-
-    if ((width == 0U) || (height == 0U)){
-        return;
-    }
-
-    right = (uint16_t)(x + width - 1U);
-    bottom = (uint16_t)(y + height - 1U);
-
-    BSP_4OLEDs_DrawLine(x, y, right, y);
-    BSP_4OLEDs_DrawLine(x, bottom, right, bottom);
-    BSP_4OLEDs_DrawLine(x, y, x, bottom);
-    BSP_4OLEDs_DrawLine(right, y, right, bottom);
-}
-/*
- * 反色显示一个ASCII字符。
- * 不能简单地先填充白色背景，再调用普通ShowChar，
- * 因为普通ShowChar仍然会写入正常字模。
- * 这里先把字模逐字节取反，再调用ShowImage。
- */
-static void menu_draw_inverted_char(uint16_t x, uint16_t y, char ch, oled_font_t font){
-    const uint8_t *source;
-    uint8_t invertedGlyph[16];
-    uint8_t glyphIndex;
-    uint8_t glyphSize;
-    uint8_t glyphWidth;
-    uint8_t glyphHeight;
-
-    if ((ch < OLED_ASCII_FIRST_CHAR) || (ch > OLED_ASCII_LAST_CHAR)){
-        ch = '?';
-    }
-
-    glyphIndex = (uint8_t)(ch - OLED_ASCII_FIRST_CHAR);
-
-    if (font == OLED_FONT_6X8){
-        glyphWidth = 6U;
-        glyphHeight = 8U;
-        glyphSize = 6U;
-
-        source = &OLED_F6X8[(uint16_t)glyphIndex * glyphSize];
-    }
-    else{
-        glyphWidth = 8U;
-        glyphHeight = 16U;
-        glyphSize = 16U;
-
-        source = &OLED_F8X16[(uint16_t)glyphIndex * glyphSize];
-    }
-
-    for (uint8_t i = 0U; i < glyphSize; i++){
-        invertedGlyph[i] = (uint8_t)~source[i];
-    }
-
-    BSP_4OLEDs_ShowImage(x, y, glyphWidth, glyphHeight, invertedGlyph);
-}
-
-/* 反色显示整个字符串。 */
-static void menu_draw_inverted_string(uint16_t x, uint16_t y, const char *text, oled_font_t font){
-    uint16_t cursorX = x;
-    uint8_t charWidth = OLED_FONT_WIDTH(font);
-
-    if (text == NULL){
-        return;
-    }
-
-    while (*text != '\0'){
-        if ((cursorX + charWidth) > OLED4_WIDTH){
-            break;
-        }
-        menu_draw_inverted_char(cursorX, y, *text, font);
-
-        cursorX = (uint16_t)(cursorX + charWidth);
-        text++;
-    }
-}
-
 /* 显示普通菜单列表。 */
 static void menu_render_list(void){
     const app_settings_t *settings = APP_Settings_Get();
@@ -410,14 +322,14 @@ static void menu_render_list(void){
 
         if (selected && (settings->cursorStyle == APP_CURSOR_INVERSE)){
             /* 整个选中行填充为亮色。 */
-            menu_fill_rectangle(0U, lineY, OLED4_WIDTH, lineHeight, 1U);
+            BSP_4OLEDs_FillRectangle(0U, lineY, OLED4_WIDTH, lineHeight, 1U);
 
             /* 使用反色字模在亮色背景上显示黑色文字。 */
-            menu_draw_inverted_string(MENU_TEXT_X, (uint16_t)(lineY + 1U), label, settings->font);
+            BSP_4OLEDs_ShowStringInverted(MENU_TEXT_X, (uint16_t)(lineY + 1U), label, settings->font);
         }
         else{
             if (selected && (settings->cursorStyle == APP_CURSOR_BORDER)){
-                menu_draw_rectangle(0U, lineY, OLED4_WIDTH, lineHeight);
+                BSP_4OLEDs_DrawRectangle(0U, lineY, OLED4_WIDTH, lineHeight);
             }
             BSP_4OLEDs_ShowString(MENU_TEXT_X, (uint16_t)(lineY + 1U), label, settings->font);
         }
