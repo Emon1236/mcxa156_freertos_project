@@ -139,45 +139,66 @@ static uint8_t menu_get_line_height(void){
 
     return (uint8_t)(OLED_FONT_HEIGHT(settings->font) + MENU_LINE_PADDING);
 }
+/****************************************/
+//优化边界光标选择逻辑
 
-/* 计算当前屏幕最多能够显示多少行。 */
+//返回当前字体状态下，虚拟屏幕能够容纳的菜单行数，不会被菜单实际项目数量影响
+static uint8_t menu_get_screen_capacity(void){
+    uint8_t lineHeight = menu_get_line_height();
+    if (lineHeight == 0U){
+        return 0U;
+    }
+    return (uint8_t)(OLED4_HEIGHT / lineHeight);
+}
+
+//区分两个概念：screen_capacity时屏幕能放下多少行，visibleCount是当前实际显示的菜单数量
 static uint8_t menu_get_visible_count(const menu_page_t *page){
     uint8_t capacity;
-    uint8_t lineHeight;
+    //uint8_t lineHeight;
 
     if ((page == NULL) || (page->itemCount == 0U)){
         return 0U;
     }
 
-    lineHeight = menu_get_line_height();
-    capacity = (uint8_t)(OLED4_HEIGHT / lineHeight);
+    //lineHeight = menu_get_line_height();
+    capacity = menu_get_screen_capacity();
 
-    if (capacity > page->itemCount){
-        capacity = page->itemCount;
+    if (page->itemCount < capacity){
+        return page->itemCount;
     }
     return capacity;
 }
 
 /*
  * 字体改变后，屏幕能显示的行数也会改变，保证光标仍位于有效的可见行内。
+ 优化翻页滚动逻辑
  */
 static void menu_synchronize_window(menu_frame_t *frame){
-    uint8_t visibleCount;
+    uint8_t count;//菜单项总数
+    uint8_t capacity;//屏幕容量
 
     if ((frame == NULL) || (frame->page == NULL)){
         return;
     }
 
-    visibleCount = menu_get_visible_count(frame->page);
-
-    if (visibleCount == 0U){//没有菜单项，重置所有状态
+    count = frame->page->itemCount;
+    capacity = menu_get_screen_capacity();
+    if (count == 0U || capacity == 0U){//没有菜单项，重置所有状态
         frame->selectedIndex = 0U;
         frame->firstVisibleIndex = 0U;
         frame->cursorRow = 0U;
         return;
     }
-    if (frame->cursorRow >= visibleCount){
-        frame->cursorRow = (uint8_t)(visibleCount - 1U);
+    if(frame->selectedIndex >= count){//防止异常索引
+        frame->selectedIndex = 0U;
+    }
+    if (count <= capacity){//菜单不需要滚动时，强制恢复自然排列
+        frame->firstVisibleIndex = 0U;
+        frame->cursorRow = frame->selectedIndex;
+        return;
+    }
+    if (frame->cursorRow >= capacity){//菜单需要滚动时，保证光标位于屏幕范围内
+        frame->cursorRow = (uint8_t)(capacity - 1U);
     }
 
     /*
@@ -185,19 +206,32 @@ static void menu_synchronize_window(menu_frame_t *frame){
      * selectedIndex = firstVisibleIndex + cursorRow
      * 因为菜单可以首尾循环，所以需要进行取模。
      */
-    frame->firstVisibleIndex =(uint8_t)((frame->selectedIndex + frame->page->itemCount - frame->cursorRow) % frame->page->itemCount);
+    frame->firstVisibleIndex =(uint8_t)((frame->selectedIndex + count - frame->cursorRow) % count);
 }
 
 /* 向上移动一次。 */
 static void menu_move_up(void){
     menu_frame_t *frame = menu_current_frame();
     uint8_t count = frame->page->itemCount;
+    uint8_t capacity;   //记录屏幕容量
 
     if (count == 0U){//没有菜单项，什么也不做
         return;
     }
-    /* SETTINGS向上继续移动时，会变成3D。 */
+    capacity = menu_get_screen_capacity();//获取屏幕容量
+    if(capacity == 0U){
+        return;
+    }
+
+    /* SETTINGS向上继续移动时，会变成3D；更新真正选中的菜单项，实现首尾循环 */
     frame->selectedIndex = (uint8_t)((frame->selectedIndex + count - 1U) % count);
+    //菜单项没超过容量不滚动，在第一项继续向上，selectedIndex从0变成9
+    if (count <= capacity){
+        frame->firstVisibleIndex = 0U;
+        frame->cursorRow = frame->selectedIndex;
+        return;
+    }
+    //菜单项超过屏幕容量，需要滚动
     if (frame->cursorRow > 0U){
         frame->cursorRow--; /* 光标还没到第一行，只移动光标。 */
     }
@@ -209,17 +243,26 @@ static void menu_move_up(void){
 static void menu_move_down(void){
     menu_frame_t *frame = menu_current_frame();
     uint8_t count = frame->page->itemCount;
-    uint8_t visibleCount;
+    uint8_t capacity;
 
     if (count == 0U){
         return;
     }
 
-    visibleCount = menu_get_visible_count(frame->page);//计算当前屏幕最多显示多少行
+    capacity = menu_get_screen_capacity();//获取屏幕容量
+    if(capacity == 0U){
+        return;
+    }
     /* 3D向下继续移动时，会变成SETTINGS。 */
     frame->selectedIndex = (uint8_t)((frame->selectedIndex + 1U) % count);
-
-    if ((frame->cursorRow + 1U) < visibleCount){
+    //菜单项没超过屏幕容量，不需要滚动
+    if (count <= capacity){
+        frame->firstVisibleIndex = 0U;
+        frame->cursorRow = frame->selectedIndex;
+        return;
+    }
+    //菜单项超过屏幕容量，需要滚动
+    if ((frame->cursorRow + 1U) < capacity){
         /* 光标还没到最后一行，只移动光标。 */
         frame->cursorRow++;
     }
