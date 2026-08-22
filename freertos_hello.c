@@ -10,137 +10,59 @@
 #include "board.h"
 #include "app.h"
 
-#include "bsp/bsp_spi.h"
-#include "bsp/bsp_4oleds.h"
+#include "bsp/bsp_p3t1755.h"
 
+static void APP_TemperatureSensorTest(void){
+    status_t status;
+    float temperatureC;
 
-#include "bsp/bsp_button.h"
-#include "bsp/bsp_buzzer.h"
+    int32_t temperatureMillic;
+    uint32_t magnitude;
 
-#include "app/menu.h"
+    status = BSP_P3T1755_Init();
+    if (status != kStatus_Success){
+        PRINTF("P3T1755 init failed, status=%d\r\n",
+               (int)status);
+        return;
+    }
+    status = BSP_P3T1755_ReadTemperatureC(
+        &temperatureC);
 
-#define BUTTON_TASK_PERIOD_MS 10U
-#define MENU_QUEUE_LENGTH     8U
-
-#define BUTTON_TASK_PRIORITY  (tskIDLE_PRIORITY + 2U)
-#define MENU_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
-
-#define BUTTON_TASK_STACK_SIZE \
-    (configMINIMAL_STACK_SIZE + 64U)
-
-#define MENU_TASK_STACK_SIZE \
-    (configMINIMAL_STACK_SIZE + 256U)
-
-static QueueHandle_t s_menuKeyQueue;
-
-/* 向菜单队列发送一个按键事件。 */
-static void Menu_SendKey(menu_key_t key)
-{
-    /*
-     * 等待时间为0，队列满时直接放弃。
-     * 正常人工按键速度下，长度为8的队列已经足够。
-     */
-    (void)xQueueSend(s_menuKeyQueue, &key, 0U);
-}
-
-static void ButtonTask(void *pvParameters)
-{
-    TickType_t lastWakeTime;
-
-    (void)pvParameters;
-
-    lastWakeTime = xTaskGetTickCount();
-
-    for (;;)
+    if (status != kStatus_Success)
     {
-        uint32_t events = BSP_Button_Scan();
-
-        if ((events & BSP_BUTTON_1_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_UP);
-        }
-
-        if ((events & BSP_BUTTON_2_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_DOWN);
-        }
-
-        if ((events & BSP_BUTTON_3_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_OK);
-        }
-
-        if ((events & BSP_BUTTON_4_EVENT) != 0U)
-        {
-            Menu_SendKey(MENU_KEY_BACK);
-        }
-
-        /*
-         * BSP_Button_Scan要求每10ms扫描一次。
-         * 连续3次检测到相同的新状态后确认按键，
-         * 因此消抖时间约为30ms。
-         */
-        vTaskDelayUntil(&lastWakeTime,
-                        pdMS_TO_TICKS(BUTTON_TASK_PERIOD_MS));
+        PRINTF("P3T1755 read failed, status=%d\r\n",
+               (int)status);
+        return;
+    }
+    //将浮点温度转换成毫摄氏度
+    temperatureMillic = (int32_t)(temperatureC * 1000.0f);
+    if(temperatureMillic < 0){
+        magnitude = (uint32_t)(-temperatureMillic);
+        // float t = (float)magnitude / 1000.0f;
+        //PRINTF("TemperatureF: %.3f Celsius\r\n", t);//CmakeLists.txt没有启用浮点支持
+        PRINTF("Temperature: %u.%03u C\r\n",
+               (unsigned int)(magnitude / 1000U),
+               (unsigned int)(magnitude % 1000U));
+    }
+    else{
+        magnitude = (uint32_t)temperatureMillic;
+        // float t = (float)magnitude / 1000.0f;
+        //PRINTF("TemperatureF: %.3f Celsius\r\n", t);
+        PRINTF("Temperature: %u.%03u C\r\n",
+               (unsigned int)(magnitude / 1000U),
+               (unsigned int)(magnitude % 1000U));
     }
 }
 
-static void MenuTask(void *pvParameters)
-{
-    menu_key_t key;
-
-    (void)pvParameters;
-
-    Menu_Init();
-    Menu_Render();
-
-    for (;;)
-    {
-        /*
-         * 没有按键时一直阻塞在队列上，不消耗CPU。
-         */
-        if (xQueueReceive(s_menuKeyQueue,
-                          &key,
-                          portMAX_DELAY) == pdPASS)
-        {
-            if (Menu_HandleKey(key))
-            {
-                Menu_Render();
-            }
-        }
-    }
-}
 
 int main(void)
 {
+
     BOARD_InitHardware();
+    APP_TemperatureSensorTest();
 
-    BSP_SPI_Init();
-    BSP_4OLEDs_Init();
-    BSP_Button_Init();
-    BSP_Buzzer_Init();
+    //vTaskDelay(pdMS_TO_TICKS(100U));
 
-    s_menuKeyQueue =
-        xQueueCreate(MENU_QUEUE_LENGTH,
-                     sizeof(menu_key_t));
-
-    configASSERT(s_menuKeyQueue != NULL);
-
-    configASSERT(
-        xTaskCreate(ButtonTask,
-                    "button",
-                    BUTTON_TASK_STACK_SIZE,
-                    NULL,
-                    BUTTON_TASK_PRIORITY,
-                    NULL) == pdPASS);
-
-    configASSERT(
-        xTaskCreate(MenuTask,
-                    "menu",
-                    MENU_TASK_STACK_SIZE,
-                    NULL,
-                    MENU_TASK_PRIORITY,
-                    NULL) == pdPASS);
 
     vTaskStartScheduler();
 
