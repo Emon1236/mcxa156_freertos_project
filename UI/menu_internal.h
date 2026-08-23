@@ -74,17 +74,31 @@ typedef enum
     MENU_VIEW_NOTICE
 } menu_view_t;
 
-/* 普通列表菜单动画状态。 */
-typedef struct
-{
-    float currentY;
-    float currentTargetY;
+// 列表动画状态
+typedef enum{
+    MENU_LIST_PHASE_ENTERING = 0U,
+    MENU_LIST_PHASE_ACTIVE, //正常处理按键
+    MENU_LIST_PHASE_EXITING //列表收拢，完成后返回上一层
+} menu_list_phase_t;
 
+//列表动画状态
+typedef struct{
+    menu_list_phase_t phase;
+    //当前菜单行距，进入时0-16，退出时16-0
+    float lineSpacing;
+    float lineSpacingTarget;
+    //菜单内容纵向偏移，列表滚动时平滑变化
+    float contentY;
+    float contentTargetY;
+    //圆角选择框的纵坐标
     float cursorY;
-    float cursorTargetY;
-
+    float cursorTargetY; 
+    //圆角选择框宽度，根据当前选中字符串自动计算
     float cursorWidth;
     float cursorTargetWidth;
+    //右侧滚动进度条高度
+    float barY;
+    float barTargetY;
 } menu_animation_t;
 
 /* 一级磁贴菜单动画状态。 */

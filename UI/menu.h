@@ -11,19 +11,23 @@ extern "C" {
 
 //最多允许的菜单层数
 #define MENU_MAX_DEPTH 4U
-//菜单左侧留出空白
-#define MENU_TEXT_X 4U
-//文字上下各留一个像素
-#define MENU_LINE_PADDING 2U
+
+// 16像素行高，一次完整显示4行，右侧的5个像素给滚动进度条
+#define MENU_LIST_LINE_HEIGHT              16U
+#define MENU_LIST_TEXT_X                   4U
+#define MENU_LIST_BAR_WIDTH                5U
+#define MENU_LIST_CURSOR_RADIUS            2U
+
+//列表动画的响应时间：进入页面从0展开到16，光标宽度从0展开到文字宽度
+#define MENU_LIST_ENTRY_RESPONSE_MS        110U
+#define MENU_LIST_SCROLL_RESPONSE_MS       100U
+#define MENU_LIST_CURSOR_RESPONSE_MS       80U
+#define MENU_LIST_CURSOR_WIDTH_RESPONSE_MS 90U
+#define MENU_LIST_BAR_RESPONSE_MS          100U
 
 //按键音参数
 #define MENU_KEY_TONE_HZ 2000U
 #define MENU_KEY_TONE_MS 50U
-
-//动画响应时间，数值越小动画越快
-#define MENU_SCROLL_RESPONSE_MS 90U //滚动响应
-#define MENU_CURSOR_RESPONSE_MS 80U //光标响应
-#define MENU_CURSOR_WIDTH_RESPONSE_MS 100U  //光标宽度响应
 
 /*
  * 一级菜单图标布局参数

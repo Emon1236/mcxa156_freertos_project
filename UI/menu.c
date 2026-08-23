@@ -1,10 +1,4 @@
 /*
-1. 菜单滚动状态设计思路：
-selectedIndex 当前真正选中的菜单项
-firstVisibleIndex 屏幕第一行显示的菜单项
-cursorIndex 光标位于屏幕第几行
-例如使用8x16字体，一行占16+2=18个像素，128像素可显示7行；光标没到最后一行，cursorRow++
-光标到最后一行，firstVisibleIndex++,光标不动，选中3D后继续向下，选中SETTINGS。
 
 2.按键功能分配
 按键1，向上；按键2，向下；按键3，确认；按键4，返回
@@ -31,9 +25,9 @@ cursorIndex 光标位于屏幕第几行
 static menu_animation_t s_menuAnimation;
 static menu_tile_animation_t s_tileAnimation;
 
-static menu_frame_t s_menuStack[MENU_MAX_DEPTH];
-static uint8_t s_menuDepth;
-static menu_view_t s_currentView;
+static menu_frame_t s_menuStack[MENU_MAX_DEPTH];//菜单栈。最大4层，0是一级菜单，1是SETTINGS。
+static uint8_t s_menuDepth; //当前处于第几层菜单
+static menu_view_t s_currentView;   //当前显示菜单列表还是提示页面
 
 /* 静态函数声明区 */
 static void menu_action_font(void);
@@ -47,12 +41,22 @@ static const char *menu_get_cursor_label(void);
 
 /************************************************************/
 static const char *menu_get_item_label(const menu_item_t *item);
-
-static void menu_set_animation_targets(void);//设置动画目标值
-static void menu_reset_animation(void);     //重置动画状态
-
 static int16_t menu_float_to_int16(float value);    //将浮点数转换为int16_t，避免直接强制类型转换可能导致的溢出问题
-static uint8_t menu_wrap_item_index(int32_t index, uint8_t count);//将菜单项索引限制在有效范围内，支持循环滚动
+
+static uint8_t menu_get_font_height(void);
+static void menu_list_normalize_window(menu_frame_t *frame);
+static float menu_get_cursor_target_width(void);
+
+static void menu_list_refresh_targets(void);
+static void menu_list_begin_enter(void);
+static void menu_list_begin_exit(void);
+
+static bool menu_list_move(int8_t direction);
+static bool menu_list_update(uint32_t deltaTimeMs);
+static bool menu_list_animation_finished(void);
+
+static void menu_render_list(void);
+static bool menu_go_back(void);
 
 static void menu_tile_init(void);
 static bool menu_tile_move(int8_t direction);
@@ -81,6 +85,30 @@ static const menu_item_t s_settingsItems[] = {
         .getLabel = menu_get_cursor_label,
         .childPage = NULL,
         .action = menu_action_cursor
+    },
+    {
+        .label = "SCROLL TEST 1",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_open_notice
+    },
+    {
+        .label = "SCROLL TEST 2",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_open_notice
+    },
+    {
+        .label = "SCROLL TEST 3",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_open_notice
+    },
+    {
+        .label = "SCROLL TEST 4",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_open_notice
     }
 };
 
@@ -122,9 +150,6 @@ static const menu_page_t s_rootPage = {
     .itemCount = (uint8_t)(sizeof(s_rootItems) / sizeof(s_rootItems[0]))
 };
 
-static menu_frame_t s_menuStack[MENU_MAX_DEPTH];//菜单栈。最大4层，0是一级菜单，1是SETTINGS。
-static uint8_t s_menuDepth; //当前处于第几层菜单
-static menu_view_t s_currentView;   //当前显示菜单列表还是提示页面
 //取得当前菜单层
 static menu_frame_t *menu_current_frame(void)   {
     return &s_menuStack[s_menuDepth];
@@ -156,206 +181,14 @@ static void menu_apply_font(u8g2_t *u8g2){
     u8g2_SetDrawColor(u8g2, 1U);
 }
 
-/* 计算当前字体下一行占用的总高度。 */
-static uint8_t menu_get_line_height(void){
-    if (APP_Settings_Get()->font == APP_FONT_SMALL){
-        return 12U;
-    }
-    return 16U;
-}
 /****************************************/
-//优化边界光标选择逻辑
 
-//返回当前字体状态下，虚拟屏幕能够容纳的菜单行数，不会被菜单实际项目数量影响
-static uint8_t menu_get_screen_capacity(void){
-    uint8_t lineHeight = menu_get_line_height();
-    if (lineHeight == 0U){
-        return 0U;
-    }
-    // return (uint8_t)(OLED4_HEIGHT / lineHeight);
-    return (uint8_t)(UI_DISPLAY_HEIGHT / lineHeight);
-}
 
-//区分两个概念：screen_capacity时屏幕能放下多少行，visibleCount是当前实际显示的菜单数量
-static uint8_t menu_get_visible_count(const menu_page_t *page){
-    uint8_t capacity;
-    //uint8_t lineHeight;
-
-    if ((page == NULL) || (page->itemCount == 0U)){
-        return 0U;
-    }
-
-    //lineHeight = menu_get_line_height();
-    capacity = menu_get_screen_capacity();
-
-    if (page->itemCount < capacity){
-        return page->itemCount;
-    }
-    return capacity;
-}
-
-/*
- * 字体改变后，屏幕能显示的行数也会改变，保证光标仍位于有效的可见行内。
- 优化翻页滚动逻辑
- */
-static void menu_synchronize_window(menu_frame_t *frame){
-    uint8_t count;//菜单项总数
-    uint8_t capacity;//屏幕容量
-
-    if ((frame == NULL) || (frame->page == NULL)){
-        return;
-    }
-
-    count = frame->page->itemCount;
-    capacity = menu_get_screen_capacity();
-    if (count == 0U || capacity == 0U){//没有菜单项，重置所有状态
-        frame->selectedIndex = 0U;
-        frame->firstVisibleIndex = 0U;
-        frame->cursorRow = 0U;
-        return;
-    }
-    if(frame->selectedIndex >= count){//防止异常索引
-        frame->selectedIndex = 0U;
-    }
-    if (count <= capacity){//菜单不需要滚动时，强制恢复自然排列
-        frame->firstVisibleIndex = 0U;
-        frame->cursorRow = frame->selectedIndex;
-        return;
-    }
-    if (frame->cursorRow >= capacity){//菜单需要滚动时，保证光标位于屏幕范围内
-        frame->cursorRow = (uint8_t)(capacity - 1U);
-    }
-
-    /*
-     * 保持下面的关系：
-     * selectedIndex = firstVisibleIndex + cursorRow
-     * 因为菜单可以首尾循环，所以需要进行取模。
-     */
-    frame->firstVisibleIndex =(uint8_t)((frame->selectedIndex + count - frame->cursorRow) % count);
-}
-
-/* 向上移动一次。 */
-static void menu_move_up(void){
-    menu_frame_t *frame = menu_current_frame();
-    uint8_t count = frame->page->itemCount;
-    uint8_t capacity;
-    uint8_t lineHeight;
-
-    if (count == 0U)
-    {
-        return;
-    }
-
-    capacity = menu_get_screen_capacity();
-
-    if (capacity == 0U)
-    {
-        return;
-    }
-
-    lineHeight = menu_get_line_height();
-
-    frame->selectedIndex =
-        (uint8_t)((frame->selectedIndex + count - 1U) % count);
-
-    /*
-     * 菜单数量不超过屏幕容量时，菜单内容不滚动，
-     * 只移动光标。
-     */
-    if (count <= capacity)
-    {
-        frame->firstVisibleIndex = 0U;
-        frame->cursorRow = frame->selectedIndex;
-
-        menu_set_animation_targets();
-        return;
-    }
-
-    if (frame->cursorRow > 0U)
-    {
-        /* 光标尚未到达第一行，只移动光标。 */
-        frame->cursorRow--;
-    }
-    else
-    {
-        /*
-         * 光标已经位于第一行。
-         * firstVisibleIndex向前移动一项。
-         *
-         * 新菜单初始向上偏移一行，然后逐渐回到0，
-         * 看起来就是菜单内容向下滑动。
-         */
-        frame->firstVisibleIndex =
-            (uint8_t)((frame->firstVisibleIndex + count - 1U) % count);
-
-        s_menuAnimation.currentY -= (float)lineHeight;
-    }
-
-    menu_set_animation_targets();
-}
-/* 向下移动一次。 */
-static void menu_move_down(void){
-    menu_frame_t *frame = menu_current_frame();
-    uint8_t count = frame->page->itemCount;
-    uint8_t capacity;
-    uint8_t lineHeight;
-
-    if (count == 0U)
-    {
-        return;
-    }
-
-    capacity = menu_get_screen_capacity();
-
-    if (capacity == 0U)
-    {
-        return;
-    }
-
-    lineHeight = menu_get_line_height();
-
-    frame->selectedIndex =
-        (uint8_t)((frame->selectedIndex + 1U) % count);
-
-    /*
-     * 菜单项目没有超过屏幕容量时，
-     * firstVisibleIndex永远保持为0。
-     */
-    if (count <= capacity)
-    {
-        frame->firstVisibleIndex = 0U;
-        frame->cursorRow = frame->selectedIndex;
-
-        menu_set_animation_targets();
-        return;
-    }
-
-    if ((frame->cursorRow + 1U) < capacity)
-    {
-        /* 光标还没有到达最后一行，只移动光标。 */
-        frame->cursorRow++;
-    }
-    else
-    {
-        /*
-         * 光标已经位于最后一行。
-         * firstVisibleIndex向后移动一项。
-         *
-         * 新菜单初始向下偏移一行，然后逐渐回到0，
-         * 看起来就是菜单内容向上滑动。
-         */
-        frame->firstVisibleIndex =
-            (uint8_t)((frame->firstVisibleIndex + 1U) % count);
-
-        s_menuAnimation.currentY += (float)lineHeight;
-    }
-
-    menu_set_animation_targets();
-}
 
 /* 进入下一级菜单。 */
 static void menu_enter_page(const menu_page_t *page){
     menu_frame_t *newFrame;
+
     if (page == NULL){
         return;
     }
@@ -371,27 +204,8 @@ static void menu_enter_page(const menu_page_t *page){
     newFrame->selectedIndex = 0U;
     newFrame->firstVisibleIndex = 0U;
     newFrame->cursorRow = 0U;
-
-    menu_reset_animation();
-}
-
-/* 返回上一级菜单。 */
-static bool menu_go_back(void){
-    if (s_menuDepth == 0U){
-        /* 已经位于M_MAIN，不能继续返回。 */
-        return false;
-    }
-
-    s_menuDepth--;
-    menu_synchronize_window(menu_current_frame());
-    if(s_menuDepth == 0U){
-        menu_tile_init();
-    }
-    else{
-        menu_reset_animation();
-    }
-    // menu_reset_animation();
-    return true;
+    //不直接显示最终列表，从重叠状态播放展开动画
+    menu_list_begin_enter();
 }
 
 /* 获得菜单项最终需要显示的文字。 */
@@ -403,60 +217,352 @@ static const char *menu_get_item_label(const menu_item_t *item)
 
     return item->label;
 }
+// 返回当前列表字体的实际像素高度，使用已有的两种字体small和large的高度值
+static uint8_t menu_get_font_height(void){
+    if (APP_Settings_Get()->font == APP_FONT_SMALL)
+    {
+        return 10U;
+    }
 
+    return 13U;
+}
+//保证当前选中项目处于可见窗口内
+static void menu_list_normalize_window(menu_frame_t *frame){
+    uint8_t count;
+    uint8_t capacity;
+    uint8_t maximumFirstIndex;
+
+    if ((frame == NULL) || (frame->page == NULL)){
+        return;
+    }
+    count = frame->page->itemCount;
+    // 16行像素高，一次显示4行
+    capacity = (uint8_t)(UI_DISPLAY_HEIGHT / MENU_LIST_LINE_HEIGHT);
+    if ((count == 0U) || (capacity == 0U)){
+        frame->selectedIndex = 0U;
+        frame->firstVisibleIndex = 0U;
+        frame->cursorRow = 0U;
+        return;
+    }
+    if (frame->selectedIndex >= count){
+        frame->selectedIndex = 0U;
+    }
+    //菜单项不超过4项不需要滚动，菜单始终按照自然顺序显示
+    if (count <= capacity){
+        frame->firstVisibleIndex = 0U;
+        frame->cursorRow = frame->selectedIndex;
+        return;
+    }
+    maximumFirstIndex = (uint8_t)(count - capacity); 
+    if (frame->firstVisibleIndex > maximumFirstIndex){
+        frame->firstVisibleIndex = maximumFirstIndex;
+    } 
+    //选中项位于当前窗口上方，将其移动到第一行
+    if (frame->selectedIndex < frame->firstVisibleIndex){
+        frame->firstVisibleIndex = frame->selectedIndex;
+    }
+    //选中项位于当前窗口下方，将其移动到最后一行
+    else if (frame->selectedIndex >= frame->firstVisibleIndex + capacity){
+        frame->firstVisibleIndex = frame->selectedIndex - capacity + 1U;
+    }
+    frame->cursorRow = (uint8_t)(frame->selectedIndex - frame->firstVisibleIndex);
+
+}
+//计算当前选中菜单项所需的光标宽度，光标右侧不进入5像素宽的滚动条区域
 static float menu_get_cursor_target_width(void){
     menu_frame_t *frame = menu_current_frame();
     u8g2_t *u8g2 = UI_Display_GetContext();
+
     const char *label;
     uint16_t width;
+    uint16_t maximumWidth;
 
-    if ((frame->page == NULL) || (frame->page->itemCount == 0U)){
+    if((frame->page == NULL) || (frame->page->itemCount == 0U) || (frame->selectedIndex >= frame->page->itemCount)){
         return 0.0f;
     }
-
     label = menu_get_item_label(&frame->page->items[frame->selectedIndex]);
-
-    if (label == NULL){
+    if(label == NULL){
         return 0.0f;
     }
-
     menu_apply_font(u8g2);
+    //文字左右各留4像素空白
+    width = u8g2_GetStrWidth(u8g2, label) + MENU_LIST_TEXT_X * 2U;
+    maximumWidth = UI_DISPLAY_WIDTH - MENU_LIST_BAR_WIDTH;
+    if (width > maximumWidth){
+        width = maximumWidth;
+    }
+    return (float)width;
+}
+//根据当前菜单选择更新全部列表动画目标：只修改目标值，不改变当前值
+static void menu_list_refresh_targets(void){
+    menu_frame_t *frame = menu_current_frame();
 
-    width = u8g2_GetStrWidth(u8g2, label);
-    width += MENU_TEXT_X * 2U;
+    uint8_t count;
+    if ((frame == NULL) || (frame->page == NULL)){
+        return;
+    }
+    count = frame->page->itemCount;
+    menu_list_normalize_window(frame);
 
-    if (width > UI_DISPLAY_WIDTH){
-        width = UI_DISPLAY_WIDTH;
+    s_menuAnimation.lineSpacingTarget = (float)MENU_LIST_LINE_HEIGHT;
+    s_menuAnimation.contentTargetY = -(float)frame->firstVisibleIndex * (float)MENU_LIST_LINE_HEIGHT;
+    s_menuAnimation.cursorTargetY = (float)frame->cursorRow * (float)MENU_LIST_LINE_HEIGHT;
+    s_menuAnimation.cursorTargetWidth = menu_get_cursor_target_width();
+    //滚动条在第一项时高度为0，在最后一项时高度为64
+    if (count <= 1U){
+        s_menuAnimation.barTargetY = (float)UI_DISPLAY_HEIGHT;
+    }
+    else{
+        s_menuAnimation.barTargetY = (float)frame->selectedIndex * (float)UI_DISPLAY_HEIGHT / (float)(count - 1U);
+    }
+}
+//开始列表进入动画，所有菜单文字首先重叠在当前光标行，随后行间距从0逐渐展开到16
+static void menu_list_begin_enter(void){
+    menu_list_refresh_targets();
+    s_menuAnimation.phase = MENU_LIST_PHASE_ENTERING;
+    s_menuAnimation.lineSpacing = 0.0f;
+    //当行间距为0时，所有项目都位于同一纵坐标，随着行间距展开，项目分别移动到各自行位置
+    s_menuAnimation.contentY = s_menuAnimation.cursorTargetY;
+    s_menuAnimation.cursorY = s_menuAnimation.cursorTargetY;
+    //光标宽度从0展开到文字宽度
+    s_menuAnimation.cursorWidth = 0.0f;
+    s_menuAnimation.barY = 0.0f;    //滚动条从上方逐渐展开
+}
+//列表退出动画，列表行逐渐收拢到当前选中行，光标和滚动条同时缩回
+static void menu_list_begin_exit(void){
+    if (s_menuAnimation.phase == MENU_LIST_PHASE_EXITING){
+        return;
+    }
+    menu_list_refresh_targets();
+
+    s_menuAnimation.phase = MENU_LIST_PHASE_EXITING;
+    s_menuAnimation.lineSpacingTarget = 0.0f;
+    //行间距变为0后，所有项目会重叠在光标行
+    s_menuAnimation.contentTargetY = s_menuAnimation.cursorTargetY;
+
+    s_menuAnimation.cursorTargetWidth = 0.0f;
+    s_menuAnimation.barTargetY = 0.0f;
+}
+//判断所有列表动画参数是否达到目标值
+static bool menu_list_animation_finished(void){
+// UI_Animation_Approach会在接近目标时直接将当前值设置为目标值，这里可以直接比较
+    return
+        (s_menuAnimation.lineSpacing == s_menuAnimation.lineSpacingTarget) &&
+
+        (s_menuAnimation.contentY == s_menuAnimation.contentTargetY) &&
+
+        (s_menuAnimation.cursorY == s_menuAnimation.cursorTargetY) &&
+
+        (s_menuAnimation.cursorWidth == s_menuAnimation.cursorTargetWidth) &&
+
+        (s_menuAnimation.barY == s_menuAnimation.barTargetY);
+}
+//处理列表的上下选择
+static bool menu_list_move(int8_t direction){
+    menu_frame_t *frame = menu_current_frame();
+    uint8_t count;
+
+    if((frame == NULL) || (frame->page == NULL)){
+        return false;
+    }
+    count = frame->page->itemCount;
+    if (count == 0U || direction == 0){
+        return false;
+    }
+    //列表展开或退出期间禁止移动，避免页面状态和动画目标发生冲突
+    if (s_menuAnimation.phase != MENU_LIST_PHASE_ACTIVE){
+        return false;
+    }
+    if(direction < 0){
+        frame->selectedIndex = (uint8_t)((frame->selectedIndex + count - 1U) % count);
+    }
+    else{
+        frame->selectedIndex = (uint8_t)((frame->selectedIndex + 1U) % count);
+    }
+    menu_list_refresh_targets();
+    return true;
+}
+//更新列表动画
+static bool menu_list_update(uint32_t deltaTimeMs){
+    bool changed = false;
+
+    changed |= UI_Animation_Approach(&s_menuAnimation.lineSpacing, s_menuAnimation.lineSpacingTarget,
+        deltaTimeMs, MENU_LIST_ENTRY_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_menuAnimation.contentY, s_menuAnimation.contentTargetY,
+        deltaTimeMs, MENU_LIST_SCROLL_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_menuAnimation.cursorY, s_menuAnimation.cursorTargetY,
+        deltaTimeMs, MENU_LIST_CURSOR_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_menuAnimation.cursorWidth, s_menuAnimation.cursorTargetWidth,
+        deltaTimeMs, MENU_LIST_CURSOR_WIDTH_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_menuAnimation.barY, s_menuAnimation.barTargetY,
+        deltaTimeMs, MENU_LIST_BAR_RESPONSE_MS);
+
+    if (!menu_list_animation_finished()){
+        return changed;
     }
 
-    return (float)width;  
+    if (s_menuAnimation.phase == MENU_LIST_PHASE_ENTERING){
+        //列表已完全展开，现在可以响应按键
+        s_menuAnimation.phase = MENU_LIST_PHASE_ACTIVE;
+    }
+    else if (s_menuAnimation.phase == MENU_LIST_PHASE_EXITING){
+        //退出动画完成后才切换页面，避免按下返回键后画面立即跳到主菜单
+        if (s_menuDepth > 0U){
+            s_menuDepth--;
+        }
+
+        if (s_menuDepth == 0U){
+            menu_tile_init();
+        }
+        else{
+            /*
+             * 为以后支持三级菜单保留。
+             * 返回父列表时重新播放列表展开动画。
+             */
+            menu_list_begin_enter();
+        }
+        changed = true;
+    }
+    return changed;
 }
-static void menu_set_animation_targets(void)
-{
+//绘制列表页面
+static void menu_render_list(void){
     menu_frame_t *frame = menu_current_frame();
-    uint8_t lineHeight = menu_get_line_height();
+    u8g2_t *u8g2 = UI_Display_GetContext();
+
+    const app_settings_t *settings = APP_Settings_Get();
+    uint8_t count;
+    uint8_t fontHeight;
+    uint8_t textOffsetY;
+
+    uint16_t barHeight;
+    uint16_t cursorWidth;
+
+    int16_t cursorY;
+
+    UI_Display_Clear();
+    menu_apply_font(u8g2); 
+    
+    if ((frame == NULL) || (frame->page == NULL)){
+        return;
+    }
+
+    count = frame->page->itemCount;
+
+    if (count == 0U){
+        return;
+    }
+    fontHeight = menu_get_font_height();
+
+    if (fontHeight >= MENU_LIST_LINE_HEIGHT){
+        textOffsetY = 0U;
+    }
+    else{//让文字在16像素行高中垂直居中
+        textOffsetY = (uint8_t)((MENU_LIST_LINE_HEIGHT - fontHeight) / 2U);
+    }   
+    u8g2_SetDrawColor(u8g2, 1U);
+    //绘制右侧滚动进度条,两条横线表示顶部和底部，中间竖线表示滚动范围，实心矩形表示当前进度。
+    u8g2_DrawHLine(u8g2, UI_DISPLAY_WIDTH - MENU_LIST_BAR_WIDTH,
+        0U, MENU_LIST_BAR_WIDTH);
+
+    u8g2_DrawHLine(u8g2, UI_DISPLAY_WIDTH - MENU_LIST_BAR_WIDTH,
+        UI_DISPLAY_HEIGHT - 1U, MENU_LIST_BAR_WIDTH);
+
+    u8g2_DrawVLine(u8g2, UI_DISPLAY_WIDTH - ((MENU_LIST_BAR_WIDTH + 1U) / 2U),
+        0U, UI_DISPLAY_HEIGHT); 
+    
+    if (s_menuAnimation.barY <= 0.0f){
+        barHeight = 0U;
+    }
+    else{
+        barHeight = (uint16_t)(s_menuAnimation.barY + 0.5f);
+    }
+
+    if (barHeight > UI_DISPLAY_HEIGHT){
+        barHeight = UI_DISPLAY_HEIGHT;
+    }
+
+    if (barHeight > 0U){
+        u8g2_DrawBox(u8g2, UI_DISPLAY_WIDTH - MENU_LIST_BAR_WIDTH,
+            0U, MENU_LIST_BAR_WIDTH, (u8g2_uint_t)barHeight);
+    }
 
     /*
-     * 菜单滚动动画最终总是回到0偏移。
-     * 按键发生滚动时会临时改变currentY。
+     * 绘制全部菜单文字。
+     * 超出屏幕的项目会被跳过，
+     * 屏幕边缘处仍然依靠U8g2完成最终裁剪。
      */
-    s_menuAnimation.currentTargetY = 0.0f;
+    for (uint8_t index = 0U; index < count; index++){
+        const char *label;
+        float animatedRowY;
+        int16_t rowY;
+        int16_t textY;
 
-    s_menuAnimation.cursorTargetY =
-        (float)((uint16_t)frame->cursorRow * lineHeight);
+        animatedRowY = (float)index * s_menuAnimation.lineSpacing + s_menuAnimation.contentY;
 
-    s_menuAnimation.cursorTargetWidth =
-        menu_get_cursor_target_width();
+        rowY = menu_float_to_int16(animatedRowY);
+
+        if ((rowY >= (int16_t)UI_DISPLAY_HEIGHT) || ((int16_t)(rowY + (int16_t)MENU_LIST_LINE_HEIGHT) <= 0)){
+            continue;
+        }
+
+        label = menu_get_item_label(&frame->page->items[index]);
+
+        if (label == NULL){
+            label = "";
+        }
+        textY = (int16_t)(rowY + (int16_t)textOffsetY);
+        u8g2_DrawStr(u8g2, MENU_LIST_TEXT_X, (u8g2_uint_t)textY, label);
+    } 
+    /*
+     * 文字全部绘制完成以后再绘制光标。
+     * XOR圆角矩形会同时反转文字和背景。
+     */
+    cursorY = menu_float_to_int16(s_menuAnimation.cursorY);
+
+    if (s_menuAnimation.cursorWidth <= 0.0f){
+        cursorWidth = 0U;
+    }
+    else{
+        cursorWidth = (uint16_t)(s_menuAnimation.cursorWidth + 0.5f);
+    }
+
+    if (cursorWidth > (UI_DISPLAY_WIDTH - MENU_LIST_BAR_WIDTH)){
+        cursorWidth = UI_DISPLAY_WIDTH - MENU_LIST_BAR_WIDTH;
+    }
+
+    if (cursorWidth == 0U){
+        return;
+    }
+
+    if (settings->cursorStyle == APP_CURSOR_INVERSE){
+        //圆角反色光标
+        u8g2_SetDrawColor(u8g2, 2U);
+        u8g2_DrawRBox(u8g2, 0U, (u8g2_uint_t)cursorY, (u8g2_uint_t)cursorWidth, MENU_LIST_LINE_HEIGHT, MENU_LIST_CURSOR_RADIUS);
+        u8g2_SetDrawColor(u8g2, 1U);
+    }
+    else{//保留原工程的边框模式设置
+        u8g2_DrawRFrame(u8g2, 0U, (u8g2_uint_t)cursorY,
+            (u8g2_uint_t)cursorWidth, MENU_LIST_LINE_HEIGHT, MENU_LIST_CURSOR_RADIUS);
+    }    
+}
+//返回上一级页面，只启动退出动画
+static bool menu_go_back(void){
+    if (s_menuDepth == 0U){
+        return false;
+    }
+
+    if (s_menuAnimation.phase == MENU_LIST_PHASE_EXITING){
+        return false;
+    }
+    menu_list_begin_exit();
+    return true;
 }
 
-static void menu_reset_animation(void)
-{
-    menu_set_animation_targets();
-
-    s_menuAnimation.currentY = s_menuAnimation.currentTargetY;
-    s_menuAnimation.cursorY = s_menuAnimation.cursorTargetY;
-    s_menuAnimation.cursorWidth = s_menuAnimation.cursorTargetWidth;
-}
 //初始化一级菜单动画：图标起始重叠并位于屏幕上方，随后横向展开向下滑入
 static void menu_tile_init(void){
     menu_frame_t *frame = &s_menuStack[0];
@@ -652,24 +758,6 @@ static int16_t menu_float_to_int16(float value)
     return (int16_t)(value - 0.5f);
 }
 
-static uint8_t menu_wrap_item_index(int32_t index, uint8_t count)
-{
-    int32_t wrappedIndex;
-
-    if (count == 0U)
-    {
-        return 0U;
-    }
-
-    wrappedIndex = index % count;
-
-    if (wrappedIndex < 0)
-    {
-        wrappedIndex += count;
-    }
-
-    return (uint8_t)wrappedIndex;
-}
 
 
 /* 执行当前选中的菜单项。 */
@@ -678,7 +766,7 @@ static void menu_activate_selected_item(void)
     menu_frame_t *frame = menu_current_frame();
     const menu_item_t *item;
 
-    if (frame->page->itemCount == 0U){
+    if ((frame->page == NULL) || (frame->page->itemCount == 0U)){
         return;
     }
 
@@ -689,131 +777,13 @@ static void menu_activate_selected_item(void)
     }
     else if (item->action != NULL){
         item->action();
-        //修改字体后，每页可显示行数可能发生变化。
-        //因此需要重新校正窗口和动画坐标
-        menu_synchronize_window(menu_current_frame());
-        menu_reset_animation();
+        // FONT KEYSOUND等设置改变后，动态文字和光标宽度可能变化，只更新目标值
+        if((s_currentView == MENU_VIEW_LIST) && (s_menuDepth > 0U)){
+            menu_list_refresh_targets();
+        }
     }
 }
 
-/* 显示普通菜单列表。 */
-static void menu_render_list(void){
-    uint8_t count;
-    uint8_t visibleCount;
-    uint8_t lineHeight;
-
-    int16_t contentOffsetY;
-    int16_t firstRelativeRow;
-    int16_t lastRelativeRow;
-
-    int16_t cursorY;
-    uint16_t cursorWidth;
-
-    u8g2_t *u8g2 = UI_Display_GetContext();
-
-    UI_Display_Clear();
-    menu_apply_font(u8g2);
-    const app_settings_t *settings = APP_Settings_Get();
-    menu_frame_t *frame = menu_current_frame();
-
-    count = frame->page->itemCount;
-
-    if (count == 0U){
-        return;
-    }
-
-    visibleCount = menu_get_visible_count(frame->page);
-    lineHeight = menu_get_line_height();
-
-    if ((visibleCount == 0U) || (lineHeight == 0U)){
-        return;
-    }
-
-    contentOffsetY = menu_float_to_int16(s_menuAnimation.currentY);
-
-    if (count <= visibleCount){
-    //菜单不需要滚动。所有项目始终按照自然顺序排列。
-        firstRelativeRow = 0;
-        lastRelativeRow = (int16_t)count - 1;
-    }
-    else{
-        int16_t extraRows = 0;
-        //滚动期间要额外绘制屏幕边缘外的菜单项，否则菜单进入屏幕时会突然出现。
-        if (contentOffsetY != 0){
-            int16_t absoluteOffset;
-            absoluteOffset = contentOffsetY;
-
-            if (absoluteOffset < 0){
-                absoluteOffset = (int16_t)-absoluteOffset;
-            }
-
-            extraRows = (int16_t)(absoluteOffset / lineHeight + 1);
-
-            if (extraRows > count){
-                extraRows = count;
-            }
-        }
-
-        firstRelativeRow = 0;
-        lastRelativeRow = (int16_t)visibleCount - 1;
-
-        if (contentOffsetY > 0){
-            /* 菜单向上滚动时，需要绘制上方的旧项目。 */
-            firstRelativeRow = (int16_t)(firstRelativeRow - extraRows);
-        }
-        else if (contentOffsetY < 0){
-            /* 菜单向下滚动时，需要绘制下方的旧项目。 */
-            lastRelativeRow = (int16_t)(lastRelativeRow + extraRows);
-        }
-    }
-
-    /*
-     * 先绘制全部菜单文字。
-     * 超出屏幕的部分由ShowStringClipped自动裁剪。
-     */
-    for (int16_t relativeRow = firstRelativeRow; relativeRow <= lastRelativeRow; relativeRow++){
-        uint8_t itemIndex;
-        int16_t textY;
-        const char *label;
-
-        itemIndex = menu_wrap_item_index((int32_t)frame->firstVisibleIndex + relativeRow, count);
-
-        label = menu_get_item_label(&frame->page->items[itemIndex]);
-
-        textY = (int16_t)(relativeRow * lineHeight + contentOffsetY + 1);
-
-        u8g2_DrawStr(u8g2, MENU_TEXT_X, textY, label);
-    }
-    //将光标动画中的浮点坐标转换成实际绘图坐标
-    cursorY = menu_float_to_int16(s_menuAnimation.cursorY);
-    //动画刚开始时宽度可能为0或者非常接近0
-    if (s_menuAnimation.cursorWidth <= 0.0f){
-        cursorWidth = 0U;
-    }
-    else{
-        cursorWidth = (uint16_t)s_menuAnimation.cursorWidth+0.5f;
-    }
-    if (cursorWidth > UI_DISPLAY_WIDTH){//防止光标宽度超过屏幕
-        cursorWidth = UI_DISPLAY_WIDTH;
-    }
-    if (cursorWidth == 0U){//宽度为0时不绘制光标
-        return;
-    }
-
-    //所有文字绘制完成以后再绘制光标，这样反色光标可以同时反转背景和文字。
-    if (settings->cursorStyle == APP_CURSOR_INVERSE){
-        /*
-        * DrawColor=2表示XOR。
-        * 文字已经绘制，因此矩形区域会同时反转背景和文字。
-        */
-        u8g2_SetDrawColor(u8g2, 2U);
-        u8g2_DrawBox(u8g2, 0, cursorY, cursorWidth, lineHeight);
-        u8g2_SetDrawColor(u8g2, 1U);
-    }
-    else{
-        u8g2_DrawFrame(u8g2, 0, cursorY, cursorWidth, lineHeight);
-    }
-}
 
 /* 显示尚未实现功能的提示页面。 */
 static void menu_render_notice(void){
@@ -904,8 +874,8 @@ void Menu_Init(void){
     s_menuStack[0].firstVisibleIndex = 0U;
     s_menuStack[0].cursorRow = 0U;
     //新增动画初始化
-    menu_reset_animation();
-    //一级菜单动画初始化
+    // menu_reset_animation();
+    //一级菜单动画初始化，列表动画等进入Settings时初始化
     menu_tile_init();
 }
 
@@ -921,7 +891,8 @@ bool Menu_HandleKey(menu_key_t key){
             if (s_menuDepth == 0U){
                 menu_tile_init();   //从提示页面返回M_MAIN
             }else{
-                menu_reset_animation();//提示页面返回时重置动画
+                // menu_reset_animation();//提示页面返回时重置动画
+                menu_list_begin_enter();    //从列表打开的提示页面返回时，重新播放列表展开动画
             }
             return true;
         }
@@ -933,17 +904,22 @@ bool Menu_HandleKey(menu_key_t key){
             if(s_menuDepth ==0U){
                 return menu_tile_move(-1);  //按键1选择前一个图标
             }
-            menu_move_up();
-            return true;
+            // menu_move_up();
+            // return true;
+            return menu_list_move(-1);
 
         case MENU_KEY_DOWN:
             if(s_menuDepth ==0U){
                 return menu_tile_move(1);   //按键2选择下一个图标
             }
-            menu_move_down();
-            return true;
+            // menu_move_down();
+            // return true;
+            return menu_list_move(1);
 
         case MENU_KEY_OK:
+            if((s_menuDepth > 0U) && (s_menuAnimation.phase != MENU_LIST_PHASE_ACTIVE)){
+                return false;
+            }
             menu_activate_selected_item();
             return true;
 
@@ -956,7 +932,7 @@ bool Menu_HandleKey(menu_key_t key){
 }
 
 bool Menu_Update(uint32_t deltaTimeMs){
-    bool changed = false;
+    // bool changed = false;
     //提示页面没有菜单滚动动画。
     if (s_currentView != MENU_VIEW_LIST){
         return false;
@@ -966,11 +942,11 @@ bool Menu_Update(uint32_t deltaTimeMs){
         return menu_tile_update(deltaTimeMs);
     }
     // |=是按位或赋值运算符，表示如果任何一个动画状态发生了变化，changed就会被置为true。
-    changed |= UI_Animation_Approach(&s_menuAnimation.currentY, s_menuAnimation.currentTargetY, deltaTimeMs, MENU_SCROLL_RESPONSE_MS);
-    changed |= UI_Animation_Approach(&s_menuAnimation.cursorY, s_menuAnimation.cursorTargetY, deltaTimeMs, MENU_CURSOR_RESPONSE_MS);
-    changed |= UI_Animation_Approach(&s_menuAnimation.cursorWidth, s_menuAnimation.cursorTargetWidth, deltaTimeMs, MENU_CURSOR_WIDTH_RESPONSE_MS);
+    // changed |= UI_Animation_Approach(&s_menuAnimation.currentY, s_menuAnimation.currentTargetY, deltaTimeMs, MENU_SCROLL_RESPONSE_MS);
+    // changed |= UI_Animation_Approach(&s_menuAnimation.cursorY, s_menuAnimation.cursorTargetY, deltaTimeMs, MENU_CURSOR_RESPONSE_MS);
+    // changed |= UI_Animation_Approach(&s_menuAnimation.cursorWidth, s_menuAnimation.cursorTargetWidth, deltaTimeMs, MENU_CURSOR_WIDTH_RESPONSE_MS);
 
-    return changed;    
+    return menu_list_update(deltaTimeMs);    
 }
 
 void Menu_Render(void){

@@ -2,7 +2,6 @@ __repo__/
 debug/
 release/
 build/
-icon/
 cmake-build-*/
 .vscode/
 CMakeUserPresets.json
