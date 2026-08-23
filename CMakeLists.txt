@@ -52,7 +52,10 @@ mcux_add_source(
             bsp/bsp_oled_hw.c
             bsp/bsp_oled_hw.h
             bsp/bsp_u8g2_port.c
-            bsp/bsp_u8g2_port.h         
+            bsp/bsp_u8g2_port.h
+            UI/ui_assets.c
+            UI/ui_assets.h  
+            UI/menu_internal.h       
 )
 
 mcux_add_include(

@@ -11,7 +11,11 @@ cursorIndex 光标位于屏幕第几行
 */
 
 #include "UI/menu.h"
+#include "UI/menu_internal.h"
 #include "UI/ui_settings.h"
+#include "UI/ui_assets.h"
+#include "UI/ui_animation.h"
+#include "UI/ui_display_port.h"
 
 // #include "bsp/bsp_4oleds.h"
 #include "bsp/bsp_buzzer.h"
@@ -21,71 +25,15 @@ cursorIndex 光标位于屏幕第几行
 #include <stdint.h>
 #include <string.h>
 
-#include "UI/ui_animation.h"
-#include "UI/ui_display_port.h"
 #include "u8g2.h"
 
-//最多允许的菜单层数
-#define MENU_MAX_DEPTH 4U
-//菜单左侧留出空白
-#define MENU_TEXT_X 4U
-//文字上下各留一个像素
-#define MENU_LINE_PADDING 2U
+/* 静态变量声明*/
+static menu_animation_t s_menuAnimation;
+static menu_tile_animation_t s_tileAnimation;
 
-//按键音参数
-#define MENU_KEY_TONE_HZ 2000U
-#define MENU_KEY_TONE_MS 50U
-
-//动画响应时间，数值越小动画越快
-#define MENU_SCROLL_RESPONSE_MS 90U //滚动响应
-#define MENU_CURSOR_RESPONSE_MS 80U //光标响应
-#define MENU_CURSOR_WIDTH_RESPONSE_MS 100U  //光标宽度响应
-
-typedef struct menu_page menu_page_t;
-typedef void (*menu_action_t)(void);
-typedef const char *(*menu_label_getter_t)(void);
-
-//菜单项功能结构体
-typedef struct{
-    const char *label; //菜单项显示文本
-    menu_label_getter_t getLabel; //菜单项显示文本获取函数
-    const menu_page_t *childPage; //子菜单页指针
-    menu_action_t action; //菜单项动作函数
-}menu_item_t;
-/* 一个菜单页面由菜单项数组和菜单项数量组成。 */
-struct menu_page{
-    const menu_item_t *items;
-    uint8_t itemCount;
-};
-// 菜单框架状态结构体
-typedef struct{
-    const menu_page_t *page; //当前菜单页指针
-
-    uint8_t selectedIndex;  //当前选中的菜单项索引
-    uint8_t firstVisibleIndex;//当前屏幕第一行显示的菜单项索引
-    uint8_t cursorRow;      //光标位于屏幕第几行
-} menu_frame_t;
-
-typedef enum{
-    MENU_VIEW_LIST = 0U,    //菜单列表视图
-    MENU_VIEW_NOTICE        //通知视图
-} menu_view_t;
-
-//新增动画状态
-typedef struct{
-    //菜单内容的临时纵向偏移，＋表示内容向下，-表示内容向上
-    float currentY; //当前动画位置
-    float currentTargetY;  //目标动画位置
-    //光标纵坐标当前位置和目标位置
-    float cursorY;
-    float cursorTargetY;
-    //光标矩形当前宽度和目标宽度
-    float cursorWidth;
-    float cursorTargetWidth;
-} menu_animation_t;
-
-//初始化一个静态变量结构体，菜单动画状态
-static menu_animation_t s_menuAnimation; 
+static menu_frame_t s_menuStack[MENU_MAX_DEPTH];
+static uint8_t s_menuDepth;
+static menu_view_t s_currentView;
 
 /* 静态函数声明区 */
 static void menu_action_font(void);
@@ -106,6 +54,10 @@ static void menu_reset_animation(void);     //重置动画状态
 static int16_t menu_float_to_int16(float value);    //将浮点数转换为int16_t，避免直接强制类型转换可能导致的溢出问题
 static uint8_t menu_wrap_item_index(int32_t index, uint8_t count);//将菜单项索引限制在有效范围内，支持循环滚动
 
+static void menu_tile_init(void);
+static bool menu_tile_move(int8_t direction);
+static bool menu_tile_update(uint32_t deltaTimeMs);
+static void menu_render_tile(void);
 
 /* SETTINGS页面需要先声明，一级菜单才能引用它。 */
 static const menu_page_t s_settingsPage;
@@ -137,21 +89,32 @@ static const menu_page_t s_settingsPage = {
     .itemCount = (uint8_t)(sizeof(s_settingsItems) / sizeof(s_settingsItems[0]))
 };
 
-/*
- * 一级菜单。
- * 其他菜单目前全部执行“即将上线”提示功能。
- */
+//一级图标菜单，对应M_MAIN
 static const menu_item_t s_rootItems[] = {
-    {"SETTINGS",         NULL, &s_settingsPage, NULL},  //SETTINGS进入二级菜单
-    {"TEMP_SENSOR",      NULL, NULL, menu_action_open_notice},
-    {"IMG_TRANSMISSION", NULL, NULL, menu_action_open_notice},
-    {"CLOCK",            NULL, NULL, menu_action_open_notice},
-    {"GAME",             NULL, NULL, menu_action_open_notice},
-    {"WEATHER",          NULL, NULL, menu_action_open_notice},
-    {"MUSIC",            NULL, NULL, menu_action_open_notice},
-    {"WIFI",             NULL, NULL, menu_action_open_notice},
-    {"CTRL_PANEL",       NULL, NULL, menu_action_open_notice},
-    {"3D",               NULL, NULL, menu_action_open_notice}
+    {
+        .label = "Sleep",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_open_notice
+    },
+    {
+        .label = "Editor",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_open_notice
+    },
+    {
+        .label = "Volt",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_open_notice
+    },
+    {
+        .label = "Setting",
+        .getLabel = NULL,
+        .childPage = &s_settingsPage,
+        .action = NULL
+    }
 };
 
 static const menu_page_t s_rootPage = {
@@ -415,14 +378,19 @@ static void menu_enter_page(const menu_page_t *page){
 /* 返回上一级菜单。 */
 static bool menu_go_back(void){
     if (s_menuDepth == 0U){
-        /* 已经位于一级菜单，不能继续返回。 */
+        /* 已经位于M_MAIN，不能继续返回。 */
         return false;
     }
 
     s_menuDepth--;
     menu_synchronize_window(menu_current_frame());
-    menu_reset_animation();
-
+    if(s_menuDepth == 0U){
+        menu_tile_init();
+    }
+    else{
+        menu_reset_animation();
+    }
+    // menu_reset_animation();
     return true;
 }
 
@@ -488,6 +456,190 @@ static void menu_reset_animation(void)
     s_menuAnimation.currentY = s_menuAnimation.currentTargetY;
     s_menuAnimation.cursorY = s_menuAnimation.cursorTargetY;
     s_menuAnimation.cursorWidth = s_menuAnimation.cursorTargetWidth;
+}
+//初始化一级菜单动画：图标起始重叠并位于屏幕上方，随后横向展开向下滑入
+static void menu_tile_init(void){
+    menu_frame_t *frame = &s_menuStack[0];
+
+    if (frame->selectedIndex >= s_rootPage.itemCount){
+        frame->selectedIndex = 0U;
+    }    
+    s_tileAnimation.ready = false;
+    //图标先重叠，然后逐渐展开到36像素间距
+    s_tileAnimation.iconSpacing = 0.0f;
+    s_tileAnimation.iconSpacingTarget = MENU_TILE_ICON_SPACING;
+    //保证当前选中图标展开后位于屏幕中间，不从0开始，避免返回主菜单错误地居中第一项
+    s_tileAnimation.iconOffsetTargetX = -(float)frame->selectedIndex * MENU_TILE_ICON_SPACING;
+    s_tileAnimation.iconOffsetX = s_tileAnimation.iconOffsetTargetX;
+    //图标从屏幕上方滑到y=0
+    s_tileAnimation.iconY = -(float)UI_MAIN_ICON_HEIGHT;
+    s_tileAnimation.iconTargetY = 0.0f;
+    //左侧指示器从宽0展开到7
+    s_tileAnimation.indicatorWidth = 0.0f;
+    s_tileAnimation.indicatorTargetWidth = MENU_TILE_INDICATOR_WIDTH;
+    //标题从屏幕下方向上滑入
+    s_tileAnimation.titleY = MENU_TILE_TITLE_START_Y;
+    s_tileAnimation.titleTargetY = MENU_TILE_TITLE_TARGET_Y;
+}
+//移动一级菜单
+static bool menu_tile_move(int8_t direction){
+    menu_frame_t *frame = &s_menuStack[0];
+    uint8_t count = frame->page->itemCount;
+
+    if ((count == 0U) || (direction == 0)){
+        return false;
+    }
+    //首次图标展开前禁止移动
+    if (!s_tileAnimation.ready){
+        return false;
+    }
+    //根据方向更新选中索引，支持循环滚动行为：sleep向前选择会跳到setting。。。
+    if (direction > 0){
+        frame->selectedIndex = (uint8_t)((frame->selectedIndex + 1U) % count);
+    }
+    else{
+        frame->selectedIndex = (uint8_t)((frame->selectedIndex + count - 1U) % count);
+    }
+    //整组移动，保证选中图表位于屏幕中央
+    //同时，动画没结束时再次按键只改目标位置，当前值继续平滑接近目标
+    s_tileAnimation.iconOffsetTargetX = -(float)frame->selectedIndex * MENU_TILE_ICON_SPACING;
+    //标题上滑和指示器展开效果：每次改变选择时，把标题和指示器重新放回隐藏位置
+    s_tileAnimation.indicatorWidth = 0.0f;
+    s_tileAnimation.titleY = MENU_TILE_TITLE_START_Y;
+
+    return true;
+}
+//更新一级菜单动画状态，返回true表示动画位置发生变化
+static bool menu_tile_update(uint32_t deltaTimeMs){
+    bool changed = false;
+
+    changed |= UI_Animation_Approach(&s_tileAnimation.iconSpacing, s_tileAnimation.iconSpacingTarget,
+        deltaTimeMs, MENU_TILE_ENTRY_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_tileAnimation.iconOffsetX, s_tileAnimation.iconOffsetTargetX,
+        deltaTimeMs, MENU_TILE_ICON_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_tileAnimation.iconY, s_tileAnimation.iconTargetY,
+        deltaTimeMs, MENU_TILE_ENTRY_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_tileAnimation.indicatorWidth, s_tileAnimation.indicatorTargetWidth,
+        deltaTimeMs, MENU_TILE_INDICATOR_RESPONSE_MS);
+
+    changed |= UI_Animation_Approach(&s_tileAnimation.titleY, s_tileAnimation.titleTargetY,
+        deltaTimeMs, MENU_TILE_TITLE_RESPONSE_MS);
+
+    /*
+     * 参考工程只在初始图标间距展开完成后，
+     * 才允许旋转选择一级菜单。
+     */
+    if ((!s_tileAnimation.ready) && (s_tileAnimation.iconSpacing == s_tileAnimation.iconSpacingTarget)){
+        s_tileAnimation.ready = true;
+    }
+
+    return changed;    
+}
+//绘制一级菜单，使用u8g2 C接口；动画计算放在Menu_Update中，本函数只根据当前动画值绘制一帧
+static void menu_render_tile(void){
+    menu_frame_t *frame = &s_menuStack[0];
+    u8g2_t *u8g2 = UI_Display_GetContext();
+
+    const char *title;
+    uint8_t count;
+    uint8_t indicatorWidth;
+    uint16_t titleWidth;
+    uint16_t availableTitleWidth;
+
+    int16_t titleX;
+    int16_t titleY;
+    int16_t iconY;
+    int16_t iconBaseX;
+
+    UI_Display_Clear();
+
+    count = frame->page->itemCount;
+    if (count > UI_MAIN_ICON_COUNT){
+        /*
+         * 防止菜单项数量大于图标数量时越界读取。
+         * 当前M_MAIN菜单项和图标数量均为4。
+         */
+        count = UI_MAIN_ICON_COUNT;
+    }
+
+    if ((count == 0U) || (frame->selectedIndex >= count)){
+        return;
+    }
+
+    /*
+     * WouoUI磁贴标题使用18像素粗体。
+     * DrawStr的y坐标按照字体基线解释。
+     */
+    u8g2_SetFont(u8g2, u8g2_font_helvB18_tr);
+    u8g2_SetFontPosBaseline(u8g2);
+    u8g2_SetFontMode(u8g2, 1U);
+    u8g2_SetDrawColor(u8g2, 1U);
+
+    title = menu_get_item_label(&frame->page->items[frame->selectedIndex]);
+
+    if (title == NULL){
+        title = "";
+    }
+    //标题在左侧7像素指示器以外的区域居中
+    titleWidth = u8g2_GetStrWidth(u8g2, title);
+
+    availableTitleWidth = UI_DISPLAY_WIDTH - (uint16_t)MENU_TILE_INDICATOR_WIDTH;
+
+    if (titleWidth >= availableTitleWidth){
+        titleX = (int16_t)MENU_TILE_INDICATOR_WIDTH;
+    }
+    else{
+        titleX = (int16_t)MENU_TILE_INDICATOR_WIDTH + (int16_t)((availableTitleWidth - titleWidth) / 2U);
+    }
+
+    titleY = menu_float_to_int16(s_tileAnimation.titleY);
+
+    u8g2_DrawStr(u8g2, (u8g2_uint_t)titleX, (u8g2_uint_t)titleY, title);
+
+    //绘制标题左侧的竖向指示器。
+    if (s_tileAnimation.indicatorWidth <= 0.0f){
+        indicatorWidth = 0U;
+    }
+    else if (s_tileAnimation.indicatorWidth >= MENU_TILE_INDICATOR_WIDTH){
+        indicatorWidth = (uint8_t)MENU_TILE_INDICATOR_WIDTH;
+    }
+    else{
+        indicatorWidth = (uint8_t)(s_tileAnimation.indicatorWidth + 0.5f);
+    }
+
+    if (indicatorWidth > 0U){
+        u8g2_DrawBox(u8g2, MENU_TILE_INDICATOR_X, MENU_TILE_INDICATOR_Y, indicatorWidth, MENU_TILE_INDICATOR_HEIGHT);
+    }
+
+    //图标组的静态中心位置：(128 - 30) / 2 = 49。
+    iconBaseX = (int16_t)((UI_DISPLAY_WIDTH - UI_MAIN_ICON_WIDTH) / 2U);
+
+    iconY = menu_float_to_int16(s_tileAnimation.iconY);
+
+    /*
+     * 每个图标位置由三部分组成：
+     *
+     * 屏幕中心
+     * + 整组图标偏移量
+     * + 当前图标序号 × 图标间距
+     */
+    for (uint8_t index = 0U; index < count; index++){
+        float animatedX;
+        int16_t iconX;
+
+        animatedX = s_tileAnimation.iconOffsetX + (float)index * s_tileAnimation.iconSpacing;
+
+        iconX = iconBaseX + menu_float_to_int16(animatedX);
+
+        /*
+         * 数据来自XBM数组，因此必须使用DrawXBMP，
+         * 不能改成DrawBitmap。
+         */
+        u8g2_DrawXBMP(u8g2, (u8g2_uint_t)iconX, (u8g2_uint_t)iconY, UI_MAIN_ICON_WIDTH, UI_MAIN_ICON_HEIGHT, g_uiMainIcons[index]);
+    }    
 }
 
 static int16_t menu_float_to_int16(float value)
@@ -753,6 +905,8 @@ void Menu_Init(void){
     s_menuStack[0].cursorRow = 0U;
     //新增动画初始化
     menu_reset_animation();
+    //一级菜单动画初始化
+    menu_tile_init();
 }
 
 bool Menu_HandleKey(menu_key_t key){
@@ -764,8 +918,11 @@ bool Menu_HandleKey(menu_key_t key){
     if (s_currentView == MENU_VIEW_NOTICE){
         if ((key == MENU_KEY_OK) || (key == MENU_KEY_BACK)){
             s_currentView = MENU_VIEW_LIST;
-            //提示页面返回时重置动画
-            menu_reset_animation();
+            if (s_menuDepth == 0U){
+                menu_tile_init();   //从提示页面返回M_MAIN
+            }else{
+                menu_reset_animation();//提示页面返回时重置动画
+            }
             return true;
         }
         return false;
@@ -773,10 +930,16 @@ bool Menu_HandleKey(menu_key_t key){
 
     switch (key){
         case MENU_KEY_UP:
+            if(s_menuDepth ==0U){
+                return menu_tile_move(-1);  //按键1选择前一个图标
+            }
             menu_move_up();
             return true;
 
         case MENU_KEY_DOWN:
+            if(s_menuDepth ==0U){
+                return menu_tile_move(1);   //按键2选择下一个图标
+            }
             menu_move_down();
             return true;
 
@@ -798,6 +961,10 @@ bool Menu_Update(uint32_t deltaTimeMs){
     if (s_currentView != MENU_VIEW_LIST){
         return false;
     }
+    //根页面对应M_MAIN，使用一级菜单动画
+    if(s_menuDepth == 0U){
+        return menu_tile_update(deltaTimeMs);
+    }
     // |=是按位或赋值运算符，表示如果任何一个动画状态发生了变化，changed就会被置为true。
     changed |= UI_Animation_Approach(&s_menuAnimation.currentY, s_menuAnimation.currentTargetY, deltaTimeMs, MENU_SCROLL_RESPONSE_MS);
     changed |= UI_Animation_Approach(&s_menuAnimation.cursorY, s_menuAnimation.cursorTargetY, deltaTimeMs, MENU_CURSOR_RESPONSE_MS);
@@ -809,6 +976,9 @@ bool Menu_Update(uint32_t deltaTimeMs){
 void Menu_Render(void){
     if (s_currentView == MENU_VIEW_NOTICE){
         menu_render_notice();
+    }
+    else if(s_menuDepth == 0U){
+        menu_render_tile(); //一级根菜单用UI图标样式
     }
     else{
         menu_render_list();
