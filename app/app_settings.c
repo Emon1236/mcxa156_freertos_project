@@ -7,13 +7,13 @@
  * 初始光标：反色
  */
 static app_settings_t s_settings = {
-    .font = OLED_FONT_6X8,
+    .font = APP_FONT_SMALL,
     .keySoundEnabled = true,
     .cursorStyle = APP_CURSOR_INVERSE
 };
 
 void APP_Settings_Init(void){
-    s_settings.font = OLED_FONT_6X8;
+    s_settings.font = APP_FONT_SMALL;
     s_settings.keySoundEnabled = true;
     s_settings.cursorStyle = APP_CURSOR_INVERSE;    
 }
@@ -21,13 +21,13 @@ void APP_Settings_Init(void){
 const app_settings_t *APP_Settings_Get(void){
     return &s_settings;
 }
-//在8×16和6×8之间切换字体
+//在small和large之间切换字体
 void APP_Settings_NextFont(void){
-    if (s_settings.font == OLED_FONT_6X8){
-        s_settings.font = OLED_FONT_8X16;
+    if (s_settings.font == APP_FONT_SMALL){
+        s_settings.font = APP_FONT_LARGE;
     }
     else{
-        s_settings.font = OLED_FONT_6X8;
+        s_settings.font = APP_FONT_SMALL;
     }
 }
 //切换按键音开关

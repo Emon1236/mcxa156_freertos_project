@@ -13,8 +13,14 @@ project(freertos_project LANGUAGES C CXX ASM PROJECT_BOARD_PORT_PATH ${board_roo
 
 include(${SdkRootDirPath}/CMakeLists.txt)
 
-
 include(${board}/board_files.cmake)
+
+# 收集u8g2核心C源码
+# CONFIGURE_DEPENDS表示当u8g2/csrc目录中的源文件发生变化时，CMake会重新检查文件列表。
+file(GLOB U8G2_SOURCES CONFIGURE_DEPENDS
+    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/u8g2/csrc/*.c"
+)
 
 mcux_add_source(
     SOURCES freertos_hello.c
@@ -24,17 +30,10 @@ mcux_add_source(
             bsp/bsp_rgb_led.h
             bsp/bsp_spi.c
             bsp/bsp_spi.h
-            bsp/bsp_oled_12864.c
-            bsp/bsp_oled_12864.h
-            bsp/bsp_oled_ASCII.c
-            bsp/bsp_oled_data.h
             bsp/bsp_button.c
             bsp/bsp_button.h
             bsp/bsp_buzzer.c
             bsp/bsp_buzzer.h
-            bsp/bsp_4oleds.c
-            bsp/bsp_4oleds.h
-            bsp/bsp_oled_icon.c
             app/menu.c
             app/menu.h
             app/app_settings.c
@@ -49,11 +48,20 @@ mcux_add_source(
             app/ui_animation.h
             app/app_ui_task.c
             app/app_ui_task.h
-            
+
+            ${U8G2_SOURCES}
+            bsp/bsp_oled_hw.c
+            bsp/bsp_oled_hw.h
+            bsp/bsp_u8g2_port.c
+            bsp/bsp_u8g2_port.h         
 )
 
 mcux_add_include(
-    INCLUDES .
+    INCLUDES 
+    .
+    u8g2/csrc 
 )
-mcux_convert_binary(BINARY ${APPLICATION_BINARY_DIR}/${MCUX_SDK_PROJECT_NAME}.bin)
-
+mcux_convert_binary(
+    BINARY 
+    ${APPLICATION_BINARY_DIR}/${MCUX_SDK_PROJECT_NAME}.bin
+)

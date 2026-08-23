@@ -15,8 +15,6 @@ cursorIndex 光标位于屏幕第几行
 
 // #include "bsp/bsp_4oleds.h"
 #include "bsp/bsp_buzzer.h"
-#include "bsp/bsp_oled_12864.h"
-#include "bsp/bsp_oled_data.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -25,6 +23,7 @@ cursorIndex 光标位于屏幕第几行
 
 #include "app/ui_animation.h"
 #include "app/ui_display_port.h"
+#include "u8g2.h"
 
 //最多允许的菜单层数
 #define MENU_MAX_DEPTH 4U
@@ -167,12 +166,39 @@ static menu_view_t s_currentView;   //当前显示菜单列表还是提示页面
 static menu_frame_t *menu_current_frame(void)   {
     return &s_menuStack[s_menuDepth];
 }
+//字体配置函数
+static void menu_apply_font(u8g2_t *u8g2){
+    const app_settings_t *settings = APP_Settings_Get();
+
+    if (settings->font == APP_FONT_SMALL)
+    {
+        u8g2_SetFont(u8g2, u8g2_font_6x10_tf);
+    }
+    else
+    {
+        u8g2_SetFont(u8g2, u8g2_font_8x13_tf);
+    }
+
+    /*
+     * 当前菜单使用文字左上角坐标。
+     * 设置后，DrawStr的y可以继续理解为文字顶部。
+     */
+    u8g2_SetFontPosTop(u8g2);
+
+    /*
+     * 透明字体不会主动清除字符背景，
+     * 适合先绘制文字再使用XOR光标。
+     */
+    u8g2_SetFontMode(u8g2, 1U);
+    u8g2_SetDrawColor(u8g2, 1U);
+}
 
 /* 计算当前字体下一行占用的总高度。 */
 static uint8_t menu_get_line_height(void){
-    const app_settings_t *settings = APP_Settings_Get();
-
-    return (uint8_t)(OLED_FONT_HEIGHT(settings->font) + MENU_LINE_PADDING);
+    if (APP_Settings_Get()->font == APP_FONT_SMALL){
+        return 12U;
+    }
+    return 16U;
 }
 /****************************************/
 //优化边界光标选择逻辑
@@ -411,10 +437,10 @@ static const char *menu_get_item_label(const menu_item_t *item)
 }
 
 static float menu_get_cursor_target_width(void){
-    const app_settings_t *settings = APP_Settings_Get();
     menu_frame_t *frame = menu_current_frame();
+    u8g2_t *u8g2 = UI_Display_GetContext();
     const char *label;
-    uint32_t width;
+    uint16_t width;
 
     if ((frame->page == NULL) || (frame->page->itemCount == 0U)){
         return 0.0f;
@@ -426,15 +452,16 @@ static float menu_get_cursor_target_width(void){
         return 0.0f;
     }
 
-    //左侧文字留白为MENU_TEXT_X。为了让右侧也有一点留白，所以再加两倍MENU_TEXT_X。
-    width = (uint32_t)strlen(label) * OLED_FONT_WIDTH(settings->font);
+    menu_apply_font(u8g2);
 
-    width += (uint32_t)MENU_TEXT_X * 2U;
+    width = u8g2_GetStrWidth(u8g2, label);
+    width += MENU_TEXT_X * 2U;
+
     if (width > UI_DISPLAY_WIDTH){
         width = UI_DISPLAY_WIDTH;
     }
 
-    return (float)width;    
+    return (float)width;  
 }
 static void menu_set_animation_targets(void)
 {
@@ -519,9 +546,6 @@ static void menu_activate_selected_item(void)
 
 /* 显示普通菜单列表。 */
 static void menu_render_list(void){
-    const app_settings_t *settings = APP_Settings_Get();
-    menu_frame_t *frame = menu_current_frame();
-
     uint8_t count;
     uint8_t visibleCount;
     uint8_t lineHeight;
@@ -533,7 +557,12 @@ static void menu_render_list(void){
     int16_t cursorY;
     uint16_t cursorWidth;
 
+    u8g2_t *u8g2 = UI_Display_GetContext();
+
     UI_Display_Clear();
+    menu_apply_font(u8g2);
+    const app_settings_t *settings = APP_Settings_Get();
+    menu_frame_t *frame = menu_current_frame();
 
     count = frame->page->itemCount;
 
@@ -601,71 +630,63 @@ static void menu_render_list(void){
 
         textY = (int16_t)(relativeRow * lineHeight + contentOffsetY + 1);
 
-        BSP_OLED_ShowStringClipped((int16_t)MENU_TEXT_X, textY, label, settings->font);
+        u8g2_DrawStr(u8g2, MENU_TEXT_X, textY, label);
     }
-    //所有文字绘制完成以后再绘制光标，这样反色光标可以同时反转背景和文字。
+    //将光标动画中的浮点坐标转换成实际绘图坐标
     cursorY = menu_float_to_int16(s_menuAnimation.cursorY);
-
+    //动画刚开始时宽度可能为0或者非常接近0
     if (s_menuAnimation.cursorWidth <= 0.0f){
         cursorWidth = 0U;
     }
     else{
-        cursorWidth = (uint16_t)(s_menuAnimation.cursorWidth + 0.5f);
+        cursorWidth = (uint16_t)s_menuAnimation.cursorWidth+0.5f;
     }
-
-    if (cursorWidth > UI_DISPLAY_WIDTH){
+    if (cursorWidth > UI_DISPLAY_WIDTH){//防止光标宽度超过屏幕
         cursorWidth = UI_DISPLAY_WIDTH;
     }
-
-    if (cursorWidth == 0U){
+    if (cursorWidth == 0U){//宽度为0时不绘制光标
         return;
     }
 
+    //所有文字绘制完成以后再绘制光标，这样反色光标可以同时反转背景和文字。
     if (settings->cursorStyle == APP_CURSOR_INVERSE){
-        BSP_OLED_InvertRectangle(0, cursorY, cursorWidth, lineHeight);
+        /*
+        * DrawColor=2表示XOR。
+        * 文字已经绘制，因此矩形区域会同时反转背景和文字。
+        */
+        u8g2_SetDrawColor(u8g2, 2U);
+        u8g2_DrawBox(u8g2, 0, cursorY, cursorWidth, lineHeight);
+        u8g2_SetDrawColor(u8g2, 1U);
     }
     else{
-        BSP_OLED_DrawRectangleClipped( 0, cursorY, cursorWidth, lineHeight);
+        u8g2_DrawFrame(u8g2, 0, cursorY, cursorWidth, lineHeight);
     }
 }
 
 /* 显示尚未实现功能的提示页面。 */
 static void menu_render_notice(void){
-    const app_settings_t *settings = APP_Settings_Get();
-
     const char *message = "COMING SOON";
     const char *backText = "B3/B4 RETURN";
 
-    uint16_t fontWidth;
-    uint16_t fontHeight;
+    u8g2_t *u8g2 = UI_Display_GetContext();
+
     uint16_t messageWidth;
     uint16_t backWidth;
 
     int16_t messageX;
-    int16_t messageY;
     int16_t backX;
-    int16_t backY;
-
-    fontWidth = OLED_FONT_WIDTH(settings->font);
-    fontHeight = OLED_FONT_HEIGHT(settings->font);
-
-    messageWidth = (uint16_t)strlen(message) * fontWidth;
-
-    backWidth = (uint16_t)strlen(backText) * fontWidth;
-    //三元运算符，如果文字宽度小于屏幕宽度，则居中显示，否则从最左侧开始显示。
-    messageX = (messageWidth < UI_DISPLAY_WIDTH) ? (int16_t)((UI_DISPLAY_WIDTH - messageWidth) / 2U) : 0;
-
-    backX = (backWidth < UI_DISPLAY_WIDTH) ? (int16_t)((UI_DISPLAY_WIDTH - backWidth) / 2U) : 0;
-
-    messageY = (int16_t)((UI_DISPLAY_HEIGHT - fontHeight) / 2U);
-
-    backY = (int16_t)(UI_DISPLAY_HEIGHT - fontHeight);
 
     UI_Display_Clear();
+    menu_apply_font(u8g2);
 
-    BSP_OLED_ShowStringClipped(messageX,messageY,message,settings->font);
+    messageWidth = u8g2_GetStrWidth(u8g2, message);
+    backWidth = u8g2_GetStrWidth(u8g2, backText);
 
-    BSP_OLED_ShowStringClipped(backX,backY,backText,settings->font);
+    messageX = (messageWidth < UI_DISPLAY_WIDTH) ? (int16_t)((UI_DISPLAY_WIDTH - messageWidth) / 2U) : 0;
+    backX = (backWidth < UI_DISPLAY_WIDTH) ? (int16_t)((UI_DISPLAY_WIDTH - backWidth) / 2U) : 0;
+
+    u8g2_DrawStr(u8g2, messageX, 24, message);
+    u8g2_DrawStr(u8g2, backX, 50, backText);
 }
 
 /* 根据当前设置播放按键音。 */
@@ -679,11 +700,11 @@ static void menu_play_key_tone(void){
 
 /* SETTINGS动态文字。 */
 static const char *menu_get_font_label(void){
-    if (APP_Settings_Get()->font == OLED_FONT_6X8){
-        return "FONT: 6X8";
+    if (APP_Settings_Get()->font == APP_FONT_SMALL){
+        return "FONT: SMALL";
     }
 
-    return "FONT: 8X16";
+    return "FONT: LARGE";
 }
 
 static const char *menu_get_key_sound_label(void){

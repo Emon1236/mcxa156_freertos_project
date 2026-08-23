@@ -5,7 +5,6 @@
 
 #include "bsp/bsp_button.h"
 #include "bsp/bsp_buzzer.h"
-#include "bsp/bsp_spi.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -54,16 +53,12 @@ static void app_ui_task(void *parameter){
 
     (void)parameter;
 
-//SPI必须在OLED初始化之前完成初始化。
-    BSP_SPI_Init();
     UI_Display_Init();
-
     BSP_Button_Init();
     BSP_Buzzer_Init();
-
     Menu_Init();
 
-//先立即绘制第一帧，避免启动后等待一个任务周期。
+    //先立即绘制第一帧，避免启动后等待一个任务周期。
     Menu_Render();
     UI_Display_Present();
 
