@@ -10,13 +10,23 @@
 #include "board.h"
 #include "app.h"
 
+#include "app/app_ui_task.h"
 
 
 int main(void)
 {
 
     BOARD_InitHardware();
-
+    if (!APP_UI_CreateTask())
+    {
+        /*
+         * 任务创建失败一般表示FreeRTOS堆空间不足。
+         * 此处停机，方便调试器定位。
+         */
+        for (;;)
+        {
+        }
+    }
 
     vTaskStartScheduler();
 

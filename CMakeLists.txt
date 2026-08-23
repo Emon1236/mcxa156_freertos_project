@@ -43,6 +43,12 @@ mcux_add_source(
             bsp/bsp_i3c.h
             bsp/bsp_p3t1755.c
             bsp/bsp_p3t1755.h
+            app/ui_display_port.c
+            app/ui_display_port.h
+            app/ui_animation.c
+            app/ui_animation.h
+            app/app_ui_task.c
+            app/app_ui_task.h
             
 )
 

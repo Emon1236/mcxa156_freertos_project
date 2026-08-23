@@ -413,6 +413,183 @@ void BSP_OLED_InitAll(void){
         BSP_OLED_Refresh();     //刷新显示，将缓冲区数据写入屏幕
     }
 }
+/*********************************************************************************/
+//内部裁剪画点函数
+static void oled_draw_point_clipped(int16_t x, int16_t y, uint8_t fill){
+   if ((x < 0) || (x >= (int32_t)OLED_WIDTH) || (y < 0) || (y >= (int32_t)OLED_HEIGHT)){
+            return; //超出屏幕范围则不绘制
+    }
+    BSP_OLED_DrawPoint((uint8_t)x, (uint8_t)y, fill);
+}
 
+void BSP_OLED_ShowImageClipped(int16_t x, int16_t y, uint16_t width, uint16_t height, const uint8_t *image){
+    uint16_t pageCount;
+    if ((image == NULL) || (width == 0U) || (height == 0U)){
+        return;
+    }
+    //和BSP_OLED_ShowImage类似，支持任意坐标和裁剪处理，避免访问帧缓冲区之外的区域
+    pageCount = (uint16_t)((height + 7U) / 8U);
 
+    for (uint16_t page = 0U; page < pageCount; page++){
+        for (uint16_t column = 0U; column < width; column++){
+            uint32_t dataIndex;
+            uint8_t imageData;
+
+            dataIndex = (uint32_t)page * width + column;
+            imageData = image[dataIndex];
+
+            for (uint8_t bit = 0U; bit < 8U; bit++){
+                uint16_t sourceY;
+                int32_t drawX;
+                int32_t drawY;
+
+                sourceY = (uint16_t)(page * 8U + bit);
+                //最后一页可能不足8行，例如28像素高度的图片，最后一页只有4个有效像素。
+                if (sourceY >= height){
+                    break;
+                }
+
+                drawX = (int32_t)x + column;
+                drawY = (int32_t)y + sourceY;
+
+                oled_draw_point_clipped(drawX, drawY, (uint8_t)((imageData >> bit) & 0x01U));
+            }
+        }
+    }    
+}
+
+void BSP_OLED_ShowCharClipped(int16_t x, int16_t y, char ch, oled_font_t font){
+    const uint8_t *glyph;
+    uint8_t glyphIndex;
+
+    if ((font != OLED_FONT_6X8) && (font != OLED_FONT_8X16)){
+        return;
+    }
+
+    if ((ch < OLED_ASCII_FIRST_CHAR) || (ch > OLED_ASCII_LAST_CHAR)){
+        ch = '?';
+    }
+
+    glyphIndex = (uint8_t)(ch - OLED_ASCII_FIRST_CHAR);
+
+    if (font == OLED_FONT_6X8){
+        glyph = &OLED_F6X8[(uint16_t)glyphIndex * 6U];
+
+        BSP_OLED_ShowImageClipped(x, y, 6U, 8U, glyph);
+    }
+    else{
+        glyph = &OLED_F8X16[(uint16_t)glyphIndex * 16U];
+
+        BSP_OLED_ShowImageClipped(x, y, 8U, 16U, glyph);
+    }    
+}
+
+void BSP_OLED_ShowStringClipped(int16_t x, int16_t y, const char *str, oled_font_t font){
+    int16_t cursorX;
+    int16_t cursorY;
+    uint8_t charWidth;
+    uint8_t charHeight;
+    if ((str == NULL) || ((font != OLED_FONT_6X8) && (font != OLED_FONT_8X16))){
+        return;
+    }
+
+    charWidth = (uint8_t)OLED_FONT_WIDTH(font);
+    charHeight = (uint8_t)OLED_FONT_HEIGHT(font);
+
+    cursorX = x;
+    cursorY = y;
+
+    while (*str != '\0'){
+        if (*str == '\n'){
+            cursorX = x;
+            cursorY = (int16_t)(cursorY + charHeight);
+            str++;
+            continue;
+        }
+
+        BSP_OLED_ShowCharClipped(cursorX, cursorY, *str, font);
+
+        cursorX = (int16_t)(cursorX + charWidth);
+        str++;
+    }    
+}
+
+void BSP_OLED_DrawRectangleClipped(int16_t x, int16_t y, uint16_t width, uint16_t height){
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+    if ((width == 0U) || (height == 0U)){
+        return;
+    }
+    left = x;
+    top = y;
+    right = left + (int32_t)width - 1;
+    bottom = top + (int32_t)height - 1;  
+    
+    /* 绘制上下两条边。 */
+    for (uint32_t offset = 0U; offset < width; offset++){
+        oled_draw_point_clipped(left + (int32_t)offset, top, 1U);
+        oled_draw_point_clipped(left + (int32_t)offset, bottom, 1U);
+    }
+
+    /* 绘制左右两条边。 */
+    for (uint32_t offset = 0U; offset < height; offset++){
+        oled_draw_point_clipped(left, top + (int32_t)offset, 1U);
+        oled_draw_point_clipped(right, top + (int32_t)offset, 1U);
+    }    
+}
+
+void BSP_OLED_InvertRectangle(int16_t x, int16_t y, uint16_t width, uint16_t height){
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+
+    if ((width == 0U) || (height == 0U)){
+        return;
+    }
+
+    /*
+     * right和bottom使用右开区间：
+     * [left, right)
+     * [top, bottom)
+     */
+    left = x;
+    top = y;
+    right = left + (int32_t)width;
+    bottom = top + (int32_t)height;
+
+    /* 将矩形裁剪到OLED范围内。 */
+    if (left < 0){
+        left = 0;
+    }
+
+    if (top < 0){
+        top = 0;
+    }
+
+    if (right > (int32_t)OLED_WIDTH){
+        right = OLED_WIDTH;
+    }
+
+    if (bottom > (int32_t)OLED_HEIGHT){
+        bottom = OLED_HEIGHT;
+    }
+
+    if ((left >= right) || (top >= bottom)){
+        return;
+    }
+
+    for (int32_t drawY = top; drawY < bottom; drawY++){
+        uint8_t page = (uint8_t)(drawY / 8);
+        uint8_t bit = (uint8_t)(drawY % 8);
+        uint8_t mask = (uint8_t)(1U << bit);
+
+        for (int32_t drawX = left; drawX < right; drawX++)
+        {
+            s_oledBuffer[page][drawX] ^= mask;
+        }
+    }    
+}
 

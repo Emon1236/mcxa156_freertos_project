@@ -40,6 +40,16 @@ void BSP_OLED_ShowNumber(uint8_t x, uint8_t y, uint32_t num, oled_font_t font); 
 /******************************************************************************/
 void BSP_OLED_InitAll(void);  //初始化4块屏幕控制器，只需要执行一次
 
+/*********************************为UI动画添加底层函数**************************************/
+//有符号坐标和裁剪处理
+void BSP_OLED_ShowImageClipped(int16_t x, int16_t y, uint16_t width, uint16_t height, const uint8_t *image);
+void BSP_OLED_ShowCharClipped(int16_t x, int16_t y, char ch, oled_font_t font);
+void BSP_OLED_ShowStringClipped(int16_t x, int16_t y, const char *str, oled_font_t font);
+//绘制经过裁剪的空心矩形边框
+void BSP_OLED_DrawRectangleClipped(int16_t x, int16_t y, uint16_t width, uint16_t height);
+//矩形区域中的像素全部取反
+void BSP_OLED_InvertRectangle(int16_t x, int16_t y, uint16_t width, uint16_t height);
+
 #ifdef __cplusplus
 }
 #endif
