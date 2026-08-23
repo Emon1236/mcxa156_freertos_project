@@ -1,7 +1,7 @@
 #include "app/app_ui_task.h"
 
-#include "app/menu.h"
-#include "app/ui_display_port.h"
+#include "UI/menu.h"
+#include "UI/ui_display_port.h"
 
 #include "bsp/bsp_button.h"
 #include "bsp/bsp_buzzer.h"

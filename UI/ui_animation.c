@@ -1,4 +1,4 @@
-#include "app/ui_animation.h"
+#include "UI/ui_animation.h"
 
 #include <math.h>
 #include <stddef.h>

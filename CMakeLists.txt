@@ -34,18 +34,18 @@ mcux_add_source(
             bsp/bsp_button.h
             bsp/bsp_buzzer.c
             bsp/bsp_buzzer.h
-            app/menu.c
-            app/menu.h
+            UI/menu.c
+            UI/menu.h
             app/app_settings.c
             app/app_settings.h
             bsp/bsp_i3c.c
             bsp/bsp_i3c.h
             bsp/bsp_p3t1755.c
             bsp/bsp_p3t1755.h
-            app/ui_display_port.c
-            app/ui_display_port.h
-            app/ui_animation.c
-            app/ui_animation.h
+            UI/ui_display_port.c
+            UI/ui_display_port.h
+            UI/ui_animation.c
+            UI/ui_animation.h
             app/app_ui_task.c
             app/app_ui_task.h
 

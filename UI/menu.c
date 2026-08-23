@@ -10,7 +10,7 @@ cursorIndex 光标位于屏幕第几行
 按键1，向上；按键2，向下；按键3，确认；按键4，返回
 */
 
-#include "app/menu.h"
+#include "UI/menu.h"
 #include "app/app_settings.h"
 
 // #include "bsp/bsp_4oleds.h"
@@ -21,8 +21,8 @@ cursorIndex 光标位于屏幕第几行
 #include <stdint.h>
 #include <string.h>
 
-#include "app/ui_animation.h"
-#include "app/ui_display_port.h"
+#include "UI/ui_animation.h"
+#include "UI/ui_display_port.h"
 #include "u8g2.h"
 
 //最多允许的菜单层数
