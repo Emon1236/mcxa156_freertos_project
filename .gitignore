@@ -3,7 +3,6 @@ debug/
 release/
 build/
 icon/
-UI参考工程/
 cmake-build-*/
 .vscode/
 CMakeUserPresets.json

@@ -3,24 +3,28 @@
 
 #include <stdbool.h>
 
-#include "bsp/bsp_oled_12864.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+//应用层字体枚举
+typedef enum
+{
+    APP_FONT_SMALL = 0U,
+    APP_FONT_LARGE
+} app_font_t;
 //菜单光标样式
 typedef enum{
     APP_CURSOR_INVERSE = 0U,    //反色
     APP_CURSOR_BORDER          //边框
 }app_cursor_style_t;
 
-//用户设置 （考虑掉电保存则将数据写入内部flash）
-typedef struct{
-    oled_font_t font;              //菜单字体
-    bool keySoundEnabled;          //按键音效开关
-    app_cursor_style_t cursorStyle; //菜单光标样式
-}app_settings_t;
+typedef struct
+{
+    app_font_t font;
+    bool keySoundEnabled;
+    app_cursor_style_t cursorStyle;
+} app_settings_t;
+
 
 void APP_Settings_Init(void);
 const app_settings_t *APP_Settings_Get(void);
