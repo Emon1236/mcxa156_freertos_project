@@ -34,21 +34,20 @@ mcux_add_source(
             bsp/bsp_button.h
             bsp/bsp_buzzer.c
             bsp/bsp_buzzer.h
-            UI/menu.c
-            UI/menu.h
-            app/app_settings.c
-            app/app_settings.h
             bsp/bsp_i3c.c
             bsp/bsp_i3c.h
             bsp/bsp_p3t1755.c
             bsp/bsp_p3t1755.h
+            UI/menu.c
+            UI/menu.h
+            UI/ui_settings.c
+            UI/ui_settings.h
             UI/ui_display_port.c
             UI/ui_display_port.h
             UI/ui_animation.c
             UI/ui_animation.h
             app/app_ui_task.c
             app/app_ui_task.h
-
             ${U8G2_SOURCES}
             bsp/bsp_oled_hw.c
             bsp/bsp_oled_hw.h

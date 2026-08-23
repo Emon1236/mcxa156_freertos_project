@@ -11,7 +11,7 @@ cursorIndex 光标位于屏幕第几行
 */
 
 #include "UI/menu.h"
-#include "app/app_settings.h"
+#include "UI/ui_settings.h"
 
 // #include "bsp/bsp_4oleds.h"
 #include "bsp/bsp_buzzer.h"

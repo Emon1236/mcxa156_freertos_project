@@ -1,4 +1,4 @@
-#include "app/app_settings.h"
+#include "UI/ui_settings.h"
 
 /*
  * 用户设置默认值:
