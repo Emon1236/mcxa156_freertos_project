@@ -10,6 +10,7 @@
 #include "UI/ui_assets.h"
 #include "UI/ui_animation.h"
 #include "UI/ui_display_port.h"
+#include "UI/ui_window.h"
 
 // #include "bsp/bsp_4oleds.h"
 #include "bsp/bsp_buzzer.h"
@@ -63,11 +64,20 @@ static bool menu_tile_move(int8_t direction);
 static bool menu_tile_update(uint32_t deltaTimeMs);
 static void menu_render_tile(void);
 
+static void menu_action_display_brightness(void);
+static void menu_apply_display_brightness(uint8_t brightness);
+
 /* SETTINGS页面需要先声明，一级菜单才能引用它。 */
 static const menu_page_t s_settingsPage;
 
 /* SETTINGS二级菜单。 */
 static const menu_item_t s_settingsItems[] = {
+    {
+        .label = "OLED BRIGHTNESS",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_display_brightness
+    },
     {
         .label = NULL,
         .getLabel = menu_get_font_label,
@@ -85,12 +95,6 @@ static const menu_item_t s_settingsItems[] = {
         .getLabel = menu_get_cursor_label,
         .childPage = NULL,
         .action = menu_action_cursor
-    },
-    {
-        .label = "SCROLL TEST 1",
-        .getLabel = NULL,
-        .childPage = NULL,
-        .action = menu_action_open_notice
     },
     {
         .label = "SCROLL TEST 2",
@@ -846,6 +850,17 @@ static const char *menu_get_cursor_label(void){
 }
 
 /* SETTINGS功能回调。 */
+static void menu_apply_display_brightness(uint8_t brightness){
+    APP_Settings_SetBrightness(brightness);
+    u8g2_SetContrast(UI_Display_GetContext(), brightness);
+}
+//打开亮度调节弹窗
+static void menu_action_display_brightness(void){
+    const app_settings_t *settings = APP_Settings_Get();
+    //最小值使用5而不是0，防止测试时把屏幕完全调黑后难以恢复
+    (void)UI_Window_OpenValue("OLED BRI", settings->displayBrightness,
+        10U, 255U, 5U, menu_apply_display_brightness);
+}
 static void menu_action_font(void){
     APP_Settings_NextFont();
 }
@@ -865,6 +880,8 @@ static void menu_action_open_notice(void){
 
 void Menu_Init(void){
     APP_Settings_Init();
+    //默认亮度同步到OLED
+    menu_apply_display_brightness(APP_Settings_Get()->displayBrightness);
 
     s_menuDepth = 0U;
     s_currentView = MENU_VIEW_LIST;
@@ -884,6 +901,25 @@ bool Menu_HandleKey(menu_key_t key){
      * 因此从ON改成OFF时，这一次仍然会响；从OFF改成ON时，从下一次按键开始响。
      */
     menu_play_key_tone();
+    //优先处理弹窗
+    if (UI_Window_IsVisible()){
+    switch (key){
+        case MENU_KEY_UP:
+            return UI_Window_HandleInput(UI_WINDOW_INPUT_DECREASE);
+
+        case MENU_KEY_DOWN:
+            return UI_Window_HandleInput(UI_WINDOW_INPUT_INCREASE);
+
+        case MENU_KEY_OK:
+            return UI_Window_HandleInput(UI_WINDOW_INPUT_CONFIRM);
+
+        case MENU_KEY_BACK:
+            return UI_Window_HandleInput(UI_WINDOW_INPUT_CANCEL);
+
+        default:
+            return false;
+        }
+    }
 
     if (s_currentView == MENU_VIEW_NOTICE){
         if ((key == MENU_KEY_OK) || (key == MENU_KEY_BACK)){
@@ -933,6 +969,10 @@ bool Menu_HandleKey(menu_key_t key){
 
 bool Menu_Update(uint32_t deltaTimeMs){
     // bool changed = false;
+    //背景列表保持原位置，不继续响应滚动动画
+    if (UI_Window_IsVisible()){
+        return UI_Window_Update(deltaTimeMs);
+    }
     //提示页面没有菜单滚动动画。
     if (s_currentView != MENU_VIEW_LIST){
         return false;
@@ -957,7 +997,11 @@ void Menu_Render(void){
         menu_render_tile(); //一级根菜单用UI图标样式
     }
     else{
+        //先绘制设置列表作为弹窗背景，render_list函数会清空缓冲区
         menu_render_list();
+        if (UI_Window_IsVisible()){
+            UI_Window_Draw(UI_Display_GetContext());
+        }
     }
     // /*
     //  * 所有绘图完成后只刷新一次，

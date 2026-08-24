@@ -2,6 +2,7 @@
 #define APP_SETTINGS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,11 +19,11 @@ typedef enum{
     APP_CURSOR_BORDER          //边框
 }app_cursor_style_t;
 
-typedef struct
-{
+typedef struct{
     app_font_t font;
     bool keySoundEnabled;
     app_cursor_style_t cursorStyle;
+    uint8_t displayBrightness;  //OLED对比度，范围0~255
 } app_settings_t;
 
 
@@ -31,7 +32,7 @@ const app_settings_t *APP_Settings_Get(void);
 void APP_Settings_NextFont(void);
 void APP_Settings_ToggleKeySound(void);
 void APP_Settings_NextCursorStyle(void);
-
+void APP_Settings_SetBrightness(uint8_t brightness);
 
 #ifdef __cplusplus
 }

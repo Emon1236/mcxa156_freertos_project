@@ -55,7 +55,9 @@ mcux_add_source(
             bsp/bsp_u8g2_port.h
             UI/ui_assets.c
             UI/ui_assets.h  
-            UI/menu_internal.h       
+            UI/menu_internal.h
+            UI/ui_window.c
+            UI/ui_window.h       
 )
 
 mcux_add_include(

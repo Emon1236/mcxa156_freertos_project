@@ -9,13 +9,15 @@
 static app_settings_t s_settings = {
     .font = APP_FONT_SMALL,
     .keySoundEnabled = true,
-    .cursorStyle = APP_CURSOR_INVERSE
+    .cursorStyle = APP_CURSOR_INVERSE,
+    .displayBrightness = 255U
 };
 
 void APP_Settings_Init(void){
     s_settings.font = APP_FONT_SMALL;
     s_settings.keySoundEnabled = true;
     s_settings.cursorStyle = APP_CURSOR_INVERSE;    
+    s_settings.displayBrightness = 255U;
 }
 //获取当前设置，只允许读，不允许外部修改
 const app_settings_t *APP_Settings_Get(void){
@@ -42,4 +44,8 @@ void APP_Settings_NextCursorStyle(void){
     else{
         s_settings.cursorStyle = APP_CURSOR_INVERSE;
     }
+}
+//OLED显示亮度
+void APP_Settings_SetBrightness(uint8_t brightness){
+    s_settings.displayBrightness = brightness;
 }
