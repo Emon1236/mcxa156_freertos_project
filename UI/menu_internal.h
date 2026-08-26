@@ -70,15 +70,16 @@ typedef struct
 /* 菜单当前显示模式。 */
 typedef enum
 {
-    MENU_VIEW_LIST = 0U,
-    MENU_VIEW_NOTICE
+    MENU_VIEW_LIST = 0U,    //第0层为图形菜单，其余层为列表菜单
+    MENU_VIEW_NOTICE,       //通知视图
+    MENU_VIEW_WAVEFORM,       //波形视图
+    MENU_VIEW_SLEEP           //睡眠视图
 } menu_view_t;
 
 // 列表动画状态
 typedef enum{
     MENU_LIST_PHASE_ENTERING = 0U,
-    MENU_LIST_PHASE_ACTIVE, //正常处理按键
-    MENU_LIST_PHASE_EXITING //列表收拢，完成后返回上一层
+    MENU_LIST_PHASE_ACTIVE //正常处理按键
 } menu_list_phase_t;
 
 //列表动画状态

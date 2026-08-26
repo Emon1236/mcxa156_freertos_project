@@ -11,6 +11,10 @@
 #include "UI/ui_animation.h"
 #include "UI/ui_display_port.h"
 #include "UI/ui_window.h"
+#include "UI/ui_effects.h"
+#include "UI/ui_platform.h"
+#include "UI/ui_sleep.h"
+#include "UI/ui_waveform.h"
 
 // #include "bsp/bsp_4oleds.h"
 #include "bsp/bsp_buzzer.h"
@@ -29,12 +33,37 @@ static menu_tile_animation_t s_tileAnimation;
 static menu_frame_t s_menuStack[MENU_MAX_DEPTH];//菜单栈。最大4层，0是一级菜单，1是SETTINGS。
 static uint8_t s_menuDepth; //当前处于第几层菜单
 static menu_view_t s_currentView;   //当前显示菜单列表还是提示页面
+//页面淡出完成后需要执行的操作
+typedef enum{
+    MENU_TRANSITION_NONE = 0U,
+    MENU_TRANSITION_ENTER_PAGE,//进入一个子菜单
+    MENU_TRANSITION_BACK,//从当前子菜单返回上一级
+    MENU_TRANSITION_OPEN_NOTICE,//打开提示页面
+    MENU_TRANSITION_OPEN_WAVEFORM,//打开波形页面
+    MENU_TRANSITION_OPEN_SLEEP,//打开睡眠页面
+    //从提示页或波形页回到原菜单，它不会修改s_menuDepth
+    MENU_TRANSITION_RETURN_TO_MENU
+} menu_transition_action_t;
+
+typedef struct{
+    bool active;
+    /*
+     * 淡出完成后先显示一次全黑/全白帧，
+     * 下一次Update才真正切换页面。
+     */
+    bool finalFrameShown;
+    menu_transition_action_t action;
+    const menu_page_t *targetPage;
+} menu_transition_state_t;
+static menu_transition_state_t s_transition;
+//当前提示页文字
+static const char *s_noticeMessage = "COMING SOON";
 
 /* 静态函数声明区 */
 static void menu_action_font(void);
 static void menu_action_key_sound(void);
 static void menu_action_cursor(void);
-static void menu_action_open_notice(void);
+//static void menu_action_open_notice(void);
 
 static const char *menu_get_font_label(void);
 static const char *menu_get_key_sound_label(void);
@@ -50,7 +79,7 @@ static float menu_get_cursor_target_width(void);
 
 static void menu_list_refresh_targets(void);
 static void menu_list_begin_enter(void);
-static void menu_list_begin_exit(void);
+//static void menu_list_begin_exit(void);
 
 static bool menu_list_move(int8_t direction);
 static bool menu_list_update(uint32_t deltaTimeMs);
@@ -67,79 +96,353 @@ static void menu_render_tile(void);
 static void menu_action_display_brightness(void);
 static void menu_apply_display_brightness(uint8_t brightness);
 
-/* SETTINGS页面需要先声明，一级菜单才能引用它。 */
-static const menu_page_t s_settingsPage;
+/* 原有设置动作。 */
+static void menu_action_display_brightness(void);
+static void menu_apply_display_brightness(uint8_t brightness);
+static void menu_action_font(void);
+static void menu_action_key_sound(void);
+static void menu_action_cursor(void);
+/* 动画数值弹窗。 */
+static void menu_action_tile_animation(void);
+static void menu_action_list_animation(void);
+static void menu_action_window_animation(void);
+static void menu_action_fade_animation(void);
 
-/* SETTINGS二级菜单。 */
-static const menu_item_t s_settingsItems[] = {
+static void menu_apply_tile_animation(uint8_t value);
+static void menu_apply_list_animation(uint8_t value);
+static void menu_apply_window_animation(uint8_t value);
+static void menu_apply_fade_animation(uint8_t value);
+
+/* 设置开关。 */
+static void menu_action_tile_unfold(void);
+static void menu_action_list_unfold(void);
+static void menu_action_tile_loop(void);
+static void menu_action_list_loop(void);
+static void menu_action_window_bokeh(void);
+static void menu_action_dark_mode(void);
+
+/* 功能页面。 */
+static void menu_action_sleep(void);
+static void menu_action_voltage(void);
+static void menu_action_hid(void);
+static void menu_action_save_settings(void);
+static void menu_action_coming_soon(void);
+
+/* 动态菜单文字。 */
+static const char *menu_get_font_label(void);
+static const char *menu_get_key_sound_label(void);
+static const char *menu_get_cursor_label(void);
+static const char *menu_get_tile_unfold_label(void);
+static const char *menu_get_list_unfold_label(void);
+static const char *menu_get_tile_loop_label(void);
+static const char *menu_get_list_loop_label(void);
+static const char *menu_get_window_bokeh_label(void);
+static const char *menu_get_dark_mode_label(void);
+
+/* 页面切换。 */
+static void menu_transition_begin(
+    menu_transition_action_t action,
+    const menu_page_t *targetPage);
+
+static bool menu_transition_update(uint32_t deltaTimeMs);
+static void menu_transition_commit(void);
+static void menu_show_notice(const char *message);
+
+/* 波形采样适配。 */
+static bool menu_read_voltage(uint16_t *millivolts);
+
+static const menu_page_t s_editorPage;
+static const menu_page_t s_settingsPage;
+static const menu_page_t s_aboutPage;
+
+/* Editor列表：保留参考工程的功能入口。 */
+static const menu_item_t s_editorItems[] =
+{
     {
-        .label = "OLED BRIGHTNESS",
+        .label = "FUNCTION 0",
         .getLabel = NULL,
         .childPage = NULL,
-        .action = menu_action_display_brightness
+        .action = menu_action_coming_soon
     },
     {
-        .label = NULL,
-        .getLabel = menu_get_font_label,
-        .childPage = NULL,
-        .action = menu_action_font
-    },
-    {
-        .label = NULL,
-        .getLabel = menu_get_key_sound_label,
-        .childPage = NULL,
-        .action = menu_action_key_sound
-    },
-    {
-        .label = NULL,
-        .getLabel = menu_get_cursor_label,
-        .childPage = NULL,
-        .action = menu_action_cursor
-    },
-    {
-        .label = "SCROLL TEST 2",
+        .label = "FUNCTION 1",
         .getLabel = NULL,
         .childPage = NULL,
-        .action = menu_action_open_notice
+        .action = menu_action_coming_soon
     },
     {
-        .label = "SCROLL TEST 3",
+        .label = "FUNCTION 2",
         .getLabel = NULL,
         .childPage = NULL,
-        .action = menu_action_open_notice
+        .action = menu_action_coming_soon
     },
     {
-        .label = "SCROLL TEST 4",
+        .label = "FUNCTION 3",
         .getLabel = NULL,
         .childPage = NULL,
-        .action = menu_action_open_notice
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 4",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 5",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 6",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 7",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 8",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 9",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "KNOB / HID",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_hid
+    },
+    {
+        .label = "FUNCTION 11",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 12",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 13",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 14",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "FUNCTION 15",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
     }
 };
 
-static const menu_page_t s_settingsPage = {
-    .items = s_settingsItems,
-    .itemCount = (uint8_t)(sizeof(s_settingsItems) / sizeof(s_settingsItems[0]))
+static const menu_page_t s_editorPage =
+{
+    .items = s_editorItems,
+    .itemCount =
+        (uint8_t)(sizeof(s_editorItems) / sizeof(s_editorItems[0]))
 };
 
-//一级图标菜单，对应M_MAIN
-static const menu_item_t s_rootItems[] = {
+/* About页面只显示信息，不执行动作。 */
+static const menu_item_t s_aboutItems[] =
+{
+    {
+        .label = "[ ABOUT ]",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = NULL
+    },
+    {
+        .label = "WOUOUI STYLE",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = NULL
+    },
+    {
+        .label = "MCXA156",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = NULL
+    },
+    {
+        .label = "U8G2 OLED",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = NULL
+    }
+};
+
+static const menu_page_t s_aboutPage =
+{
+    .items = s_aboutItems,
+    .itemCount =
+        (uint8_t)(sizeof(s_aboutItems) / sizeof(s_aboutItems[0]))
+};
+
+/*
+ * Settings合并了：
+ * 1. 原工程的字体、按键音、光标；
+ * 2. 参考工程中的动画和显示风格；
+ * 3. EEPROM和HID的预留入口。
+ */
+static const menu_item_t s_settingsItems[] ={
+    {
+        .label = "OLED BRIGHTNESS", .getLabel = NULL,
+        .childPage = NULL, .action = menu_action_display_brightness
+    },
+    {
+        .label = "TILE ANI", .getLabel = NULL,
+        .childPage = NULL, .action = menu_action_tile_animation
+    },
+    {
+        .label = "LIST ANI", .getLabel = NULL,
+        .childPage = NULL, .action = menu_action_list_animation
+    },
+    {
+        .label = "WINDOW ANI", .getLabel = NULL,
+        .childPage = NULL, .action = menu_action_window_animation
+    },
+    {
+        .label = "FADE ANI", .getLabel = NULL,
+        .childPage = NULL, .action = menu_action_fade_animation
+    },
+
+    /* 原有三个设置项。 */
+    {
+        .label = NULL, .getLabel = menu_get_font_label,
+        .childPage = NULL, .action = menu_action_font
+    },
+    {
+        .label = NULL, .getLabel = menu_get_key_sound_label,
+        .childPage = NULL, .action = menu_action_key_sound
+    },
+    {
+        .label = NULL, .getLabel = menu_get_cursor_label,
+        .childPage = NULL, .action = menu_action_cursor
+    },
+
+    /* 参考UI中的开关设置。 */
+    {
+        .label = NULL, .getLabel = menu_get_tile_unfold_label,
+        .childPage = NULL, .action = menu_action_tile_unfold
+    },
+    {
+        .label = NULL, .getLabel = menu_get_list_unfold_label,
+        .childPage = NULL, .action = menu_action_list_unfold
+    },
+    {
+        .label = NULL,  .getLabel = menu_get_tile_loop_label,
+        .childPage = NULL, .action = menu_action_tile_loop
+    },
+    {
+        .label = NULL, .getLabel = menu_get_list_loop_label,
+        .childPage = NULL, .action = menu_action_list_loop
+    },
+    {
+        .label = NULL, .getLabel = menu_get_window_bokeh_label,
+        .childPage = NULL, .action = menu_action_window_bokeh
+    },
+    {
+        .label = NULL, .getLabel = menu_get_dark_mode_label,
+        .childPage = NULL, .action = menu_action_dark_mode
+    },
+
+    /* 当前平台尚未提供对应功能。 */
+    {
+        .label = "SPOT ANI", .getLabel = NULL,
+        .childPage = NULL, .action = menu_action_coming_soon
+    },
+    {
+        .label = "TAG ANI",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "BTN SPT",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "BTN LPT",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "KNOB ROT DIR",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    },
+    {
+        .label = "USB HID",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_hid
+    },
+    {
+        .label = "SAVE SETTINGS",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_save_settings
+    },
+    {
+        .label = "ABOUT",
+        .getLabel = NULL,
+        .childPage = &s_aboutPage,
+        .action = NULL
+    }
+};
+
+static const menu_page_t s_settingsPage =
+{
+    .items = s_settingsItems,
+    .itemCount =
+        (uint8_t)(sizeof(s_settingsItems) / sizeof(s_settingsItems[0]))
+};
+
+/* 一级图形菜单，数量必须与g_uiMainIcons保持一致。 */
+static const menu_item_t s_rootItems[] =
+{
     {
         .label = "Sleep",
         .getLabel = NULL,
         .childPage = NULL,
-        .action = menu_action_open_notice
+        .action = menu_action_sleep
     },
     {
         .label = "Editor",
         .getLabel = NULL,
-        .childPage = NULL,
-        .action = menu_action_open_notice
+        .childPage = &s_editorPage,
+        .action = NULL
     },
     {
         .label = "Volt",
         .getLabel = NULL,
         .childPage = NULL,
-        .action = menu_action_open_notice
+        .action = menu_action_voltage
     },
     {
         .label = "Setting",
@@ -149,9 +452,11 @@ static const menu_item_t s_rootItems[] = {
     }
 };
 
-static const menu_page_t s_rootPage = {
+static const menu_page_t s_rootPage =
+{
     .items = s_rootItems,
-    .itemCount = (uint8_t)(sizeof(s_rootItems) / sizeof(s_rootItems[0]))
+    .itemCount =
+        (uint8_t)(sizeof(s_rootItems) / sizeof(s_rootItems[0]))
 };
 
 //取得当前菜单层
@@ -187,8 +492,6 @@ static void menu_apply_font(u8g2_t *u8g2){
 
 /****************************************/
 
-
-
 /* 进入下一级菜单。 */
 static void menu_enter_page(const menu_page_t *page){
     menu_frame_t *newFrame;
@@ -210,6 +513,131 @@ static void menu_enter_page(const menu_page_t *page){
     newFrame->cursorRow = 0U;
     //不直接显示最终列表，从重叠状态播放展开动画
     menu_list_begin_enter();
+}
+
+/**************************************/
+//淡出动画功能函数
+static void menu_transition_begin(menu_transition_action_t action, const menu_page_t *targetPage){
+    const app_settings_t *settings = APP_Settings_Get();
+
+    if (s_transition.active){
+        return;
+    }
+
+    s_transition.active = true;
+    s_transition.finalFrameShown = false;
+    s_transition.action = action;
+    s_transition.targetPage = targetPage;
+
+    /*
+     * 暗色模式淡出到黑色。
+     * 亮色模式淡出到白色。
+     */
+    UI_Effects_FadeBegin(settings->fadeStepMs, !settings->darkModeEnabled);
+}
+
+/* 淡出结束以后真正修改菜单状态。 */
+static void menu_transition_commit(void){
+    switch (s_transition.action){
+        case MENU_TRANSITION_ENTER_PAGE:
+            s_currentView = MENU_VIEW_LIST;
+            menu_enter_page(s_transition.targetPage);
+            break;
+
+        case MENU_TRANSITION_BACK:
+            if (s_menuDepth > 0U){
+                s_menuDepth--;
+            }
+
+            s_currentView = MENU_VIEW_LIST;
+
+            if (s_menuDepth == 0U){
+                menu_tile_init();
+            }
+            else{
+                menu_list_begin_enter();
+            }
+            break;
+
+        case MENU_TRANSITION_OPEN_NOTICE:
+            s_currentView = MENU_VIEW_NOTICE;
+            break;
+
+        case MENU_TRANSITION_OPEN_WAVEFORM:
+            s_currentView = MENU_VIEW_WAVEFORM;
+            UI_Waveform_Reset();
+            break;
+
+        case MENU_TRANSITION_OPEN_SLEEP:
+            s_currentView = MENU_VIEW_SLEEP;
+            UI_Sleep_Enter(UI_Display_GetContext());
+            break;
+
+        case MENU_TRANSITION_RETURN_TO_MENU:
+            s_currentView = MENU_VIEW_LIST;
+
+            if (s_menuDepth == 0U){
+                menu_tile_init();
+            }
+            else{
+                menu_list_begin_enter();
+            }
+            break;
+
+        case MENU_TRANSITION_NONE:
+        default:
+            break;
+    }
+
+    s_transition.active = false;
+    s_transition.finalFrameShown = false;
+    s_transition.action = MENU_TRANSITION_NONE;
+    s_transition.targetPage = NULL;
+
+    UI_Effects_FadeReset();
+}
+
+static bool menu_transition_update(uint32_t deltaTimeMs){
+    bool changed;
+
+    if (!s_transition.active){
+        return false;
+    }
+
+    changed = UI_Effects_FadeUpdate(deltaTimeMs);
+
+    if (!UI_Effects_FadeIsFinished()){
+        return changed;
+    }
+
+    /*
+     * step 4是全黑或全白。
+     * 先要求任务把这帧发送到OLED，然后下一周期再切换页面。
+     */
+    if (!s_transition.finalFrameShown){
+        s_transition.finalFrameShown = true;
+        return true;
+    }
+
+    menu_transition_commit();
+    return true;
+}
+
+static void menu_show_notice(const char *message){
+    if (message == NULL){
+        message = "COMING SOON";
+    }
+
+    s_noticeMessage = message;
+
+    menu_transition_begin(
+        MENU_TRANSITION_OPEN_NOTICE,
+        NULL);
+}
+
+/* ui_waveform与MCXA156平台采样接口之间的适配函数。 */
+static bool menu_read_voltage(uint16_t *millivolts){
+    return UI_Platform_ReadVoltageMillivolts(millivolts);
 }
 
 /* 获得菜单项最终需要显示的文字。 */
@@ -331,34 +759,51 @@ static void menu_list_begin_enter(void){
     //光标宽度从0展开到文字宽度
     s_menuAnimation.cursorWidth = 0.0f;
     s_menuAnimation.barY = 0.0f;    //滚动条从上方逐渐展开
+    //LIST UFD关闭时，列表直接处于最终位置,不播放行距从0展开到16的动画
+    if (!APP_Settings_Get()->listUnfoldEnabled)
+    {
+        s_menuAnimation.lineSpacing =
+            s_menuAnimation.lineSpacingTarget;
+
+        s_menuAnimation.contentY =
+            s_menuAnimation.contentTargetY;
+
+        s_menuAnimation.cursorY =
+            s_menuAnimation.cursorTargetY;
+
+        s_menuAnimation.cursorWidth =
+            s_menuAnimation.cursorTargetWidth;
+
+        s_menuAnimation.barY =
+            s_menuAnimation.barTargetY;
+
+        s_menuAnimation.phase =
+            MENU_LIST_PHASE_ACTIVE;
+    }    
 }
 //列表退出动画，列表行逐渐收拢到当前选中行，光标和滚动条同时缩回
-static void menu_list_begin_exit(void){
-    if (s_menuAnimation.phase == MENU_LIST_PHASE_EXITING){
-        return;
-    }
-    menu_list_refresh_targets();
+// static void menu_list_begin_exit(void){
+//     if (s_menuAnimation.phase == MENU_LIST_PHASE_EXITING){
+//         return;
+//     }
+//     menu_list_refresh_targets();
 
-    s_menuAnimation.phase = MENU_LIST_PHASE_EXITING;
-    s_menuAnimation.lineSpacingTarget = 0.0f;
-    //行间距变为0后，所有项目会重叠在光标行
-    s_menuAnimation.contentTargetY = s_menuAnimation.cursorTargetY;
+//     s_menuAnimation.phase = MENU_LIST_PHASE_EXITING;
+//     //s_menuAnimation.lineSpacingTarget = 0.0f;
+//     //行间距变为0后，所有项目会重叠在光标行
+//     s_menuAnimation.contentTargetY = s_menuAnimation.cursorTargetY;
 
-    s_menuAnimation.cursorTargetWidth = 0.0f;
-    s_menuAnimation.barTargetY = 0.0f;
-}
+//     s_menuAnimation.cursorTargetWidth = 0.0f;
+//     s_menuAnimation.barTargetY = 0.0f;
+// }
 //判断所有列表动画参数是否达到目标值
 static bool menu_list_animation_finished(void){
 // UI_Animation_Approach会在接近目标时直接将当前值设置为目标值，这里可以直接比较
     return
         (s_menuAnimation.lineSpacing == s_menuAnimation.lineSpacingTarget) &&
-
         (s_menuAnimation.contentY == s_menuAnimation.contentTargetY) &&
-
         (s_menuAnimation.cursorY == s_menuAnimation.cursorTargetY) &&
-
         (s_menuAnimation.cursorWidth == s_menuAnimation.cursorTargetWidth) &&
-
         (s_menuAnimation.barY == s_menuAnimation.barTargetY);
 }
 //处理列表的上下选择
@@ -377,33 +822,56 @@ static bool menu_list_move(int8_t direction){
     if (s_menuAnimation.phase != MENU_LIST_PHASE_ACTIVE){
         return false;
     }
-    if(direction < 0){
-        frame->selectedIndex = (uint8_t)((frame->selectedIndex + count - 1U) % count);
+    if (direction < 0){
+        if (frame->selectedIndex == 0U){
+            if (!APP_Settings_Get()->listLoopEnabled){
+                return false;
+            }
+            frame->selectedIndex = (uint8_t)(count - 1U);
+        }
+        else{
+            frame->selectedIndex--;
+        }
     }
     else{
-        frame->selectedIndex = (uint8_t)((frame->selectedIndex + 1U) % count);
+        if (frame->selectedIndex >= (uint8_t)(count - 1U)){
+            if (!APP_Settings_Get()->listLoopEnabled){
+                return false;
+            }
+            frame->selectedIndex = 0U;
+        }
+        else{
+            frame->selectedIndex++;
+        }
     }
     menu_list_refresh_targets();
     return true;
 }
 //更新列表动画
 static bool menu_list_update(uint32_t deltaTimeMs){
+    const app_settings_t *settings = APP_Settings_Get();
+    uint32_t responseMs;
     bool changed = false;
 
+    responseMs = settings->listAnimationMs;
+
+    if(responseMs == 0U){
+        responseMs = 1U;
+    }
     changed |= UI_Animation_Approach(&s_menuAnimation.lineSpacing, s_menuAnimation.lineSpacingTarget,
-        deltaTimeMs, MENU_LIST_ENTRY_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_menuAnimation.contentY, s_menuAnimation.contentTargetY,
-        deltaTimeMs, MENU_LIST_SCROLL_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_menuAnimation.cursorY, s_menuAnimation.cursorTargetY,
-        deltaTimeMs, MENU_LIST_CURSOR_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_menuAnimation.cursorWidth, s_menuAnimation.cursorTargetWidth,
-        deltaTimeMs, MENU_LIST_CURSOR_WIDTH_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_menuAnimation.barY, s_menuAnimation.barTargetY,
-        deltaTimeMs, MENU_LIST_BAR_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     if (!menu_list_animation_finished()){
         return changed;
@@ -412,24 +880,6 @@ static bool menu_list_update(uint32_t deltaTimeMs){
     if (s_menuAnimation.phase == MENU_LIST_PHASE_ENTERING){
         //列表已完全展开，现在可以响应按键
         s_menuAnimation.phase = MENU_LIST_PHASE_ACTIVE;
-    }
-    else if (s_menuAnimation.phase == MENU_LIST_PHASE_EXITING){
-        //退出动画完成后才切换页面，避免按下返回键后画面立即跳到主菜单
-        if (s_menuDepth > 0U){
-            s_menuDepth--;
-        }
-
-        if (s_menuDepth == 0U){
-            menu_tile_init();
-        }
-        else{
-            /*
-             * 为以后支持三级菜单保留。
-             * 返回父列表时重新播放列表展开动画。
-             */
-            menu_list_begin_enter();
-        }
-        changed = true;
     }
     return changed;
 }
@@ -560,10 +1010,14 @@ static bool menu_go_back(void){
         return false;
     }
 
-    if (s_menuAnimation.phase == MENU_LIST_PHASE_EXITING){
+    if (s_menuAnimation.phase != MENU_LIST_PHASE_ACTIVE){
         return false;
     }
-    menu_list_begin_exit();
+    if (s_transition.active){
+        return false;
+    }
+    menu_transition_begin(MENU_TRANSITION_BACK, NULL);    
+    //menu_list_begin_exit();
     return true;
 }
 
@@ -590,6 +1044,23 @@ static void menu_tile_init(void){
     //标题从屏幕下方向上滑入
     s_tileAnimation.titleY = MENU_TILE_TITLE_START_Y;
     s_tileAnimation.titleTargetY = MENU_TILE_TITLE_TARGET_Y;
+    /*
+    * TILE UFD关闭时，一级菜单直接显示最终状态。
+    */
+    if (!APP_Settings_Get()->tileUnfoldEnabled)
+    {
+        s_tileAnimation.iconSpacing = s_tileAnimation.iconSpacingTarget;
+
+        s_tileAnimation.iconOffsetX = s_tileAnimation.iconOffsetTargetX;
+
+        s_tileAnimation.iconY = s_tileAnimation.iconTargetY;
+
+        s_tileAnimation.indicatorWidth = s_tileAnimation.indicatorTargetWidth;
+
+        s_tileAnimation.titleY = s_tileAnimation.titleTargetY;
+
+        s_tileAnimation.ready = true;
+    }
 }
 //移动一级菜单
 static bool menu_tile_move(int8_t direction){
@@ -603,12 +1074,37 @@ static bool menu_tile_move(int8_t direction){
     if (!s_tileAnimation.ready){
         return false;
     }
-    //根据方向更新选中索引，支持循环滚动行为：sleep向前选择会跳到setting。。。
-    if (direction > 0){
-        frame->selectedIndex = (uint8_t)((frame->selectedIndex + 1U) % count);
+    if (direction > 0)
+    {
+        if (frame->selectedIndex >= (uint8_t)(count - 1U))
+        {
+            if (!APP_Settings_Get()->tileLoopEnabled)
+            {
+                return false;
+            }
+
+            frame->selectedIndex = 0U;
+        }
+        else
+        {
+            frame->selectedIndex++;
+        }
     }
-    else{
-        frame->selectedIndex = (uint8_t)((frame->selectedIndex + count - 1U) % count);
+    else
+    {
+        if (frame->selectedIndex == 0U)
+        {
+            if (!APP_Settings_Get()->tileLoopEnabled)
+            {
+                return false;
+            }
+
+            frame->selectedIndex = (uint8_t)(count - 1U);
+        }
+        else
+        {
+            frame->selectedIndex--;
+        }
     }
     //整组移动，保证选中图表位于屏幕中央
     //同时，动画没结束时再次按键只改目标位置，当前值继续平滑接近目标
@@ -621,22 +1117,25 @@ static bool menu_tile_move(int8_t direction){
 }
 //更新一级菜单动画状态，返回true表示动画位置发生变化
 static bool menu_tile_update(uint32_t deltaTimeMs){
+    const app_settings_t *settings = APP_Settings_Get();
+    uint32_t responseMs;
     bool changed = false;
+    responseMs = settings->tileAnimationMs;
 
     changed |= UI_Animation_Approach(&s_tileAnimation.iconSpacing, s_tileAnimation.iconSpacingTarget,
-        deltaTimeMs, MENU_TILE_ENTRY_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_tileAnimation.iconOffsetX, s_tileAnimation.iconOffsetTargetX,
-        deltaTimeMs, MENU_TILE_ICON_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_tileAnimation.iconY, s_tileAnimation.iconTargetY,
-        deltaTimeMs, MENU_TILE_ENTRY_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_tileAnimation.indicatorWidth, s_tileAnimation.indicatorTargetWidth,
-        deltaTimeMs, MENU_TILE_INDICATOR_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     changed |= UI_Animation_Approach(&s_tileAnimation.titleY, s_tileAnimation.titleTargetY,
-        deltaTimeMs, MENU_TILE_TITLE_RESPONSE_MS);
+        deltaTimeMs, responseMs);
 
     /*
      * 参考工程只在初始图标间距展开完成后，
@@ -762,8 +1261,6 @@ static int16_t menu_float_to_int16(float value)
     return (int16_t)(value - 0.5f);
 }
 
-
-
 /* 执行当前选中的菜单项。 */
 static void menu_activate_selected_item(void)
 {
@@ -777,7 +1274,7 @@ static void menu_activate_selected_item(void)
     item = &frame->page->items[frame->selectedIndex];
 
     if (item->childPage != NULL){
-        menu_enter_page(item->childPage);
+        menu_transition_begin(MENU_TRANSITION_ENTER_PAGE, item->childPage);
     }
     else if (item->action != NULL){
         item->action();
@@ -791,7 +1288,7 @@ static void menu_activate_selected_item(void)
 
 /* 显示尚未实现功能的提示页面。 */
 static void menu_render_notice(void){
-    const char *message = "COMING SOON";
+    const char *message = s_noticeMessage;
     const char *backText = "B3/B4 RETURN";
 
     u8g2_t *u8g2 = UI_Display_GetContext();
@@ -848,7 +1345,51 @@ static const char *menu_get_cursor_label(void){
 
     return "CURSOR: BORDER";
 }
+/**************************************/
+// TILE, LIST, WINDOW, DARK MODE动态文字。
+static const char *menu_get_tile_unfold_label(void)
+{
+    return APP_Settings_Get()->tileUnfoldEnabled
+        ? "TILE UFD: ON"
+        : "TILE UFD: OFF";
+}
 
+static const char *menu_get_list_unfold_label(void)
+{
+    return APP_Settings_Get()->listUnfoldEnabled
+        ? "LIST UFD: ON"
+        : "LIST UFD: OFF";
+}
+
+static const char *menu_get_tile_loop_label(void)
+{
+    return APP_Settings_Get()->tileLoopEnabled
+        ? "TILE LOOP: ON"
+        : "TILE LOOP: OFF";
+}
+
+static const char *menu_get_list_loop_label(void)
+{
+    return APP_Settings_Get()->listLoopEnabled
+        ? "LIST LOOP: ON"
+        : "LIST LOOP: OFF";
+}
+
+static const char *menu_get_window_bokeh_label(void)
+{
+    return APP_Settings_Get()->windowBokehEnabled
+        ? "WIN BOKEH: ON"
+        : "WIN BOKEH: OFF";
+}
+
+static const char *menu_get_dark_mode_label(void)
+{
+    return APP_Settings_Get()->darkModeEnabled
+        ? "DARK MODE: ON"
+        : "DARK MODE: OFF";
+}
+
+/***********************************************************************/
 /* SETTINGS功能回调。 */
 static void menu_apply_display_brightness(uint8_t brightness){
     APP_Settings_SetBrightness(brightness);
@@ -873,15 +1414,124 @@ static void menu_action_cursor(void){
     APP_Settings_NextCursorStyle();
 }
 
-/* 所有尚未完成的一级菜单暂时调用这个函数。 */
-static void menu_action_open_notice(void){
-    s_currentView = MENU_VIEW_NOTICE;
+static void menu_apply_tile_animation(uint8_t value){
+    APP_Settings_SetTileAnimationMs(value);
 }
+
+static void menu_apply_list_animation(uint8_t value){
+    APP_Settings_SetListAnimationMs(value);
+}
+
+static void menu_apply_window_animation(uint8_t value){
+    APP_Settings_SetWindowAnimationMs(value);
+
+    /*
+     * 如果给ui_window增加了运行时动画速度接口，在这里同步设置。
+     */
+    UI_Window_SetAnimationResponseMs(value);
+}
+
+static void menu_apply_fade_animation(uint8_t value){
+    APP_Settings_SetFadeStepMs(value);
+}
+
+static void menu_action_tile_animation(void){
+    const app_settings_t *settings = APP_Settings_Get();
+    UI_Window_OpenValue("Tile Ani", settings->tileAnimationMs, 20U, 200U, 5U, menu_apply_tile_animation);
+}
+
+static void menu_action_list_animation(void){
+    const app_settings_t *settings = APP_Settings_Get();
+    UI_Window_OpenValue("List Ani", settings->listAnimationMs, 20U, 200U, 5U, menu_apply_list_animation);
+}
+
+static void menu_action_window_animation(void)
+{
+    const app_settings_t *settings = APP_Settings_Get();
+    UI_Window_OpenValue("Window Ani", settings->windowAnimationMs,  20U, 200U, 5U, menu_apply_window_animation);
+}
+
+static void menu_action_fade_animation(void){
+    const app_settings_t *settings = APP_Settings_Get();
+    UI_Window_OpenValue("Fade Ani", settings->fadeStepMs, 10U, 100U, 5U, menu_apply_fade_animation);
+}
+
+static void menu_action_tile_unfold(void){
+    APP_Settings_ToggleTileUnfold();
+}
+
+static void menu_action_list_unfold(void){
+    APP_Settings_ToggleListUnfold();
+}
+
+static void menu_action_tile_loop(void){
+    APP_Settings_ToggleTileLoop();
+}
+
+static void menu_action_list_loop(void){
+    APP_Settings_ToggleListLoop();
+}
+
+static void menu_action_window_bokeh(void){
+    APP_Settings_ToggleWindowBokeh();
+}
+
+static void menu_action_dark_mode(void){
+    APP_Settings_ToggleDarkMode();
+}
+
+static void menu_action_hid(void){
+        menu_show_notice("COMING SOON");
+}
+
+static void menu_action_save_settings(void){
+    const app_settings_t *settings = APP_Settings_Get();
+    if (UI_Platform_SettingsSave(settings, sizeof(app_settings_t)))
+    {
+        menu_show_notice("SAVED");
+    }
+    else{
+        menu_show_notice("COMING SOON");
+    }
+}
+
+static void menu_action_coming_soon(void){
+    menu_show_notice("COMING SOON");
+}
+
+static void menu_action_sleep(void)
+{
+    menu_transition_begin(
+        MENU_TRANSITION_OPEN_SLEEP,
+        NULL);
+}
+
+static void menu_action_voltage(void)
+{
+    menu_transition_begin(
+        MENU_TRANSITION_OPEN_WAVEFORM,
+        NULL);
+}
+
+/* 所有尚未完成的一级菜单暂时调用这个函数。 */
+// static void menu_action_open_notice(void){
+//     s_currentView = MENU_VIEW_NOTICE;
+// }
 
 void Menu_Init(void){
     APP_Settings_Init();
     //默认亮度同步到OLED
     menu_apply_display_brightness(APP_Settings_Get()->displayBrightness);
+    UI_Window_SetAnimationResponseMs(APP_Settings_Get()->windowAnimationMs);
+    UI_Waveform_Init(menu_read_voltage);
+    UI_Effects_FadeReset();
+
+    s_transition.active = false;
+    s_transition.finalFrameShown = false;
+    s_transition.action = MENU_TRANSITION_NONE;
+    s_transition.targetPage = NULL;
+
+    s_noticeMessage = "COMING SOON";
 
     s_menuDepth = 0U;
     s_currentView = MENU_VIEW_LIST;
@@ -897,6 +1547,11 @@ void Menu_Init(void){
 }
 
 bool Menu_HandleKey(menu_key_t key){
+    //页面淡出时忽略输入
+    if (s_transition.active){
+        return false;
+    }
+
     /* 在修改KEY SOUND设置之前播放声音。
      * 因此从ON改成OFF时，这一次仍然会响；从OFF改成ON时，从下一次按键开始响。
      */
@@ -920,21 +1575,33 @@ bool Menu_HandleKey(menu_key_t key){
             return false;
         }
     }
-
+    //提示页返回原来的菜单层级
     if (s_currentView == MENU_VIEW_NOTICE){
         if ((key == MENU_KEY_OK) || (key == MENU_KEY_BACK)){
-            s_currentView = MENU_VIEW_LIST;
-            if (s_menuDepth == 0U){
-                menu_tile_init();   //从提示页面返回M_MAIN
-            }else{
-                // menu_reset_animation();//提示页面返回时重置动画
-                menu_list_begin_enter();    //从列表打开的提示页面返回时，重新播放列表展开动画
-            }
+            menu_transition_begin(MENU_TRANSITION_RETURN_TO_MENU, NULL);
             return true;
         }
         return false;
     }
+    //波形页面只处理返回键
+    if (s_currentView == MENU_VIEW_WAVEFORM){
+        if (key == MENU_KEY_BACK){
+            menu_transition_begin(MENU_TRANSITION_RETURN_TO_MENU, NULL);
+            return true;
+        }
+        return false;        
+    }
 
+    //睡眠页面只处理返回和确认键，屏幕关闭时看不到淡出
+    if (s_currentView == MENU_VIEW_SLEEP){
+        if ((key == MENU_KEY_BACK) || (key == MENU_KEY_OK)){
+            UI_Sleep_Wake(UI_Display_GetContext());
+            s_currentView = MENU_VIEW_LIST;
+            menu_tile_init();
+            return true;
+        }
+        return false;
+    }
     switch (key){
         case MENU_KEY_UP:
             if(s_menuDepth ==0U){
@@ -973,8 +1640,25 @@ bool Menu_Update(uint32_t deltaTimeMs){
     if (UI_Window_IsVisible()){
         return UI_Window_Update(deltaTimeMs);
     }
-    //提示页面没有菜单滚动动画。
-    if (s_currentView != MENU_VIEW_LIST){
+    //页面淡出由菜单状态机统一更新
+    if (s_transition.active)
+    {
+        return menu_transition_update(deltaTimeMs);
+    }
+    if (s_currentView == MENU_VIEW_WAVEFORM)
+    {
+        return UI_Waveform_Update(deltaTimeMs);
+    }
+
+    if (s_currentView == MENU_VIEW_SLEEP)
+    {
+        return UI_Sleep_Update(
+            UI_Display_GetContext(),
+            deltaTimeMs);
+    }
+
+    if (s_currentView == MENU_VIEW_NOTICE)
+    {
         return false;
     }
     //根页面对应M_MAIN，使用一级菜单动画
@@ -990,19 +1674,75 @@ bool Menu_Update(uint32_t deltaTimeMs){
 }
 
 void Menu_Render(void){
-    if (s_currentView == MENU_VIEW_NOTICE){
-        menu_render_notice();
-    }
-    else if(s_menuDepth == 0U){
-        menu_render_tile(); //一级根菜单用UI图标样式
-    }
-    else{
-        //先绘制设置列表作为弹窗背景，render_list函数会清空缓冲区
-        menu_render_list();
-        if (UI_Window_IsVisible()){
-            UI_Window_Draw(UI_Display_GetContext());
+    u8g2_t *u8g2 = UI_Display_GetContext();
+    const app_settings_t *settings = APP_Settings_Get();
+    UI_Display_Clear();
+    switch (s_currentView)
+    {
+        case MENU_VIEW_NOTICE:
+            menu_render_notice();
+            break;
+
+        case MENU_VIEW_WAVEFORM:
+            UI_Waveform_Draw(u8g2);
+            break;
+
+        case MENU_VIEW_SLEEP:
+            UI_Sleep_Draw(u8g2);
+            break;
+
+        case MENU_VIEW_LIST:
+        default:
+            if (s_menuDepth == 0U)
+            {
+                menu_render_tile();
+            }
+            else
+            {
+                menu_render_list();
+            }
+            break;
+    }    
+    //弹窗背景虚化必须位于：背景页面绘制完成之后、弹窗绘制之前
+    if (UI_Window_IsVisible())
+    {
+        if (settings->windowBokehEnabled)
+        {
+            UI_Effects_ApplyBokeh(u8g2);
         }
+
+        UI_Window_Draw(u8g2);
+    } 
+    //   当前页面默认黑底白字，XOR全屏得到白底黑字
+    if (!settings->darkModeEnabled)
+    {
+        u8g2_SetDrawColor(u8g2, 2U);
+        u8g2_DrawBox(
+            u8g2,
+            0U,
+            0U,
+            UI_DISPLAY_WIDTH,
+            UI_DISPLAY_HEIGHT);
+
+        u8g2_SetDrawColor(u8g2, 1U);
     }
+    //淡出是帧缓冲的最后一步处理
+    if (s_transition.active){
+        UI_Effects_ApplyFade(u8g2);
+    }
+    // if (s_currentView == MENU_VIEW_NOTICE){
+    //     menu_render_notice();
+    // }
+    // else if(s_menuDepth == 0U){
+    //     menu_render_tile(); //一级根菜单用UI图标样式
+    // }
+    // else{
+    //     //先绘制设置列表作为弹窗背景，render_list函数会清空缓冲区
+    //     menu_render_list();
+    //     if (UI_Window_IsVisible()){
+    //         UI_Window_Draw(UI_Display_GetContext());
+    //     }
+    // }
     // /*
     //  * 所有绘图完成后只刷新一次，
     //  * 避免刷新过程中出现闪烁。

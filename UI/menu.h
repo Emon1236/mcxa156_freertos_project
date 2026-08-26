@@ -19,11 +19,11 @@ extern "C" {
 #define MENU_LIST_CURSOR_RADIUS            2U
 
 //列表动画的响应时间：进入页面从0展开到16，光标宽度从0展开到文字宽度
-#define MENU_LIST_ENTRY_RESPONSE_MS        110U
-#define MENU_LIST_SCROLL_RESPONSE_MS       100U
-#define MENU_LIST_CURSOR_RESPONSE_MS       80U
-#define MENU_LIST_CURSOR_WIDTH_RESPONSE_MS 90U
-#define MENU_LIST_BAR_RESPONSE_MS          100U
+// #define MENU_LIST_ENTRY_RESPONSE_MS        110U
+// #define MENU_LIST_SCROLL_RESPONSE_MS       100U
+// #define MENU_LIST_CURSOR_RESPONSE_MS       80U
+// #define MENU_LIST_CURSOR_WIDTH_RESPONSE_MS 90U
+// #define MENU_LIST_BAR_RESPONSE_MS          100U
 
 //按键音参数
 #define MENU_KEY_TONE_HZ 2000U
@@ -42,10 +42,10 @@ extern "C" {
 #define MENU_TILE_TITLE_START_Y              76.0f
 #define MENU_TILE_TITLE_TARGET_Y             58.0f
 //动画沿用UI_Animation_Approach，按毫秒计算，取代源工程依赖主循环频率的动画函数
-#define MENU_TILE_ICON_RESPONSE_MS           110U
-#define MENU_TILE_ENTRY_RESPONSE_MS          100U
-#define MENU_TILE_TITLE_RESPONSE_MS          90U
-#define MENU_TILE_INDICATOR_RESPONSE_MS      90U
+// #define MENU_TILE_ICON_RESPONSE_MS           110U
+// #define MENU_TILE_ENTRY_RESPONSE_MS          100U
+// #define MENU_TILE_TITLE_RESPONSE_MS          90U
+// #define MENU_TILE_INDICATOR_RESPONSE_MS      90U
 
 // 按键功能枚举
 typedef enum{

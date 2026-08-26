@@ -31,6 +31,8 @@ bool UI_Window_HandleInput(ui_window_input_t input);
 bool UI_Window_Update(uint32_t deltaTimeMs);
 //在当前u8g2缓冲区上叠加绘制弹窗，该函数不会清空缓冲区，也不调用sendbuffer
 void UI_Window_Draw(u8g2_t *u8g2);
+// 设置弹窗动画响应时间，单位为毫秒
+void UI_Window_SetAnimationResponseMs(uint16_t responseMs);
 
 
 #ifdef __cplusplus

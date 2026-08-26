@@ -57,7 +57,15 @@ mcux_add_source(
             UI/ui_assets.h  
             UI/menu_internal.h
             UI/ui_window.c
-            UI/ui_window.h       
+            UI/ui_window.h
+            UI/ui_effects.c
+            UI/ui_effects.h
+            UI/ui_waveform.c
+            UI/ui_waveform.h
+            UI/ui_sleep.c
+            UI/ui_sleep.h
+            UI/ui_platform.c
+            UI/ui_platform.h       
 )
 
 mcux_add_include(

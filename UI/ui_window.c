@@ -28,8 +28,8 @@
 //弹窗初始位置位于屏幕上方，比弹窗高度多2像素，保证完全离开显示区域
 #define UI_WINDOW_HIDDEN_Y              -34.0f
 
-#define UI_WINDOW_ANIMATION_RESPONSE_MS 90U
-#define UI_WINDOW_BAR_RESPONSE_MS       90U
+// #define UI_WINDOW_ANIMATION_RESPONSE_MS 90U
+// #define UI_WINDOW_BAR_RESPONSE_MS       90U
 //标题数组最大长度，包括结尾的'\0'.
 #define UI_WINDOW_TITLE_CAPACITY        20U
 
@@ -60,6 +60,8 @@ typedef struct{
     float barTarget;
 }ui_window_state_t;
 static ui_window_state_t s_window;
+//窗口和进度条共用一个动画响应时间
+static uint16_t s_windowAnimationResponseMs = 90U;
 
 //把float绘图转换为int16_t，进行四舍五入
 static int16_t ui_window_float_to_int16(float value){
@@ -264,10 +266,10 @@ bool UI_Window_Update(uint32_t deltaTimeMs){
     }
 
     changed |= UI_Animation_Approach(&s_window.y, s_window.targetY,
-        deltaTimeMs, UI_WINDOW_ANIMATION_RESPONSE_MS);
+        deltaTimeMs, s_windowAnimationResponseMs);
 
     changed |= UI_Animation_Approach(&s_window.bar, s_window.barTarget,
-        deltaTimeMs, UI_WINDOW_BAR_RESPONSE_MS);
+        deltaTimeMs, s_windowAnimationResponseMs);
 
     if ((s_window.phase == UI_WINDOW_PHASE_OPENING) && (s_window.y == s_window.targetY)){
         //弹窗已到达中央，现在允许处理按键
@@ -349,3 +351,9 @@ void UI_Window_Draw(u8g2_t *u8g2){
     u8g2_SetDrawColor(u8g2, 1U);
 }
 
+void UI_Window_SetAnimationResponseMs(uint16_t responseMs){
+    if (responseMs == 0U){
+        responseMs = 1U;
+    }
+    s_windowAnimationResponseMs = responseMs;
+}
