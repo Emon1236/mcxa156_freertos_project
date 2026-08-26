@@ -26,7 +26,7 @@ typedef enum{
 #define BSP_BUTTON_4_EVENT (1UL << BSP_BUTTON_4)
 
 void BSP_Button_Init(void);
-bool BSP_Button_Ispressed(bsp_button_t button);
+bool BSP_Button_IsPressed(bsp_button_t button);
 uint32_t BSP_Button_Scan(void);
 
 #ifdef __cplusplus
