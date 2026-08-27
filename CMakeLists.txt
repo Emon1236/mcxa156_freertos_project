@@ -65,7 +65,11 @@ mcux_add_source(
             UI/ui_sleep.c
             UI/ui_sleep.h
             UI/ui_platform.c
-            UI/ui_platform.h       
+            UI/ui_platform.h
+            bsp/bsp_i2c.c
+            bsp/bsp_i2c.h
+            FOC/AS5600.c
+            FOC/AS5600.h       
 )
 
 mcux_add_include(
