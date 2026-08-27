@@ -306,9 +306,22 @@ static const menu_page_t s_aboutPage =
  * 3. EEPROM和HID的预留入口。
  */
 static const menu_item_t s_settingsItems[] ={
+    /* 最初的4个设置项。 */
     {
         .label = "OLED BRIGHTNESS", .getLabel = NULL,
         .childPage = NULL, .action = menu_action_display_brightness
+    },
+    {
+        .label = NULL, .getLabel = menu_get_font_label,
+        .childPage = NULL, .action = menu_action_font
+    },
+    {
+        .label = NULL, .getLabel = menu_get_key_sound_label,
+        .childPage = NULL, .action = menu_action_key_sound
+    },
+    {
+        .label = NULL, .getLabel = menu_get_cursor_label,
+        .childPage = NULL, .action = menu_action_cursor
     },
     {
         .label = "TILE ANI", .getLabel = NULL,
@@ -325,20 +338,6 @@ static const menu_item_t s_settingsItems[] ={
     {
         .label = "FADE ANI", .getLabel = NULL,
         .childPage = NULL, .action = menu_action_fade_animation
-    },
-
-    /* 原有三个设置项。 */
-    {
-        .label = NULL, .getLabel = menu_get_font_label,
-        .childPage = NULL, .action = menu_action_font
-    },
-    {
-        .label = NULL, .getLabel = menu_get_key_sound_label,
-        .childPage = NULL, .action = menu_action_key_sound
-    },
-    {
-        .label = NULL, .getLabel = menu_get_cursor_label,
-        .childPage = NULL, .action = menu_action_cursor
     },
 
     /* 参考UI中的开关设置。 */
@@ -366,7 +365,6 @@ static const menu_item_t s_settingsItems[] ={
         .label = NULL, .getLabel = menu_get_dark_mode_label,
         .childPage = NULL, .action = menu_action_dark_mode
     },
-
     /* 当前平台尚未提供对应功能。 */
     {
         .label = "SPOT ANI", .getLabel = NULL,
