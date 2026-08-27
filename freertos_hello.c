@@ -11,47 +11,75 @@
 #include "app.h"
 
 #include "app/app_ui_task.h"
-#include "bsp/bsp_2oleds.h"
-#include "bsp/bsp_spi.h"
+#include "app/app_temp_task.h"
 
-static uint8_t s_oled23TestFrame[BSP_2OLEDS_FRAME_BYTES];
-
-static void oled23TestFrame(void){
-    uint16_t page;
-    uint16_t x;
-    for (page = 0U; page < BSP_2OLEDS_PAGE_COUNT; page++){
-        for (x =0U; x < BSP_2OLEDS_WIDTH; x++){
-            uint8_t *pixel = &s_oled23TestFrame[page * BSP_2OLEDS_WIDTH + x];/* 设置像素值 */
-            if (x < 128){
-                //左屏幕横向条纹
-                *pixel = (page & 1U) != 0U ? 0xFFU : 0x00U;
-            }
-            else{
-                //右屏幕竖向条纹
-                *pixel = (x & 3U) != 0U ? 0xFFU : 0x00U;
-            }
-        }
-    }
-}
-static void oled23_test_task(void *parameter)
+#define APP_TEMP_MONITOR_TASK_STACK_DEPTH  (configMINIMAL_STACK_SIZE + 160U)
+#define APP_TEMP_MONITOR_TASK_PRIORITY     (tskIDLE_PRIORITY + 1U)
+#define APP_TEMP_MONITOR_PERIOD_MS         1000U
+/*
+输出队列中的所有样本，显示读取状态，Q4原始值，摄氏温度以及读取前的队列样本数
+每秒监视一次，采样周期是200ms，所以一次输出5行数据，队列的待处理数为5 / 8
+*/
+static void app_temp_monitor_task(void *parameter)
 {
-    bool presentSucceeded;
-
     (void)parameter;
-
-    oled23TestFrame();
 
     for (;;)
     {
-        presentSucceeded = BSP_2OLEDS_Present(s_oled23TestFrame);
+        app_temp_sample_t sample;
+        UBaseType_t pendingSampleCount;
 
         /*
-         * 即使一次发送失败，也周期性重试。
-         * 调试时可在此处给 presentSucceeded 设置断点观察。
+         * 读取前的数量表示这段时间温度生产任务累计写入、
+         * 但尚未被本监视任务取走的样本数。
          */
-        (void)presentSucceeded;
+        pendingSampleCount = APP_Temp_GetPendingSampleCount();
 
-        vTaskDelay(pdMS_TO_TICKS(1000U));
+        PRINTF("Temp queue pending: %u / 8\r\n",
+               (unsigned int)pendingSampleCount);
+
+        while (APP_Temp_TryReceive(&sample))
+        {
+            if (sample.valid)
+            {
+                uint32_t magnitude;
+                uint32_t integerPart;
+                uint32_t fractionalPart;
+                const char *sign;
+
+                /*
+                 * Q4 单位为 1/16 C。
+                 * 例如 25.0625 C 对应 temperatureQ4 == 401。
+                 */
+                sign = "";
+                if (sample.temperatureQ4 < 0)
+                {
+                    sign = "-";
+                    magnitude = (uint32_t)(-(int32_t)sample.temperatureQ4);
+                }
+                else
+                {
+                    magnitude = (uint32_t)sample.temperatureQ4;
+                }
+
+                integerPart = magnitude / 16U;
+                fractionalPart = (magnitude % 16U) * 625U;
+
+                PRINTF("Temp sample #%u: %s%u.%04u C, Q4=%d\r\n",
+                       (unsigned int)sample.sequence,
+                       sign,
+                       (unsigned int)integerPart,
+                       (unsigned int)fractionalPart,
+                       (int)sample.temperatureQ4);
+            }
+            else
+            {
+                PRINTF("Temp sample #%u: read failed\r\n",
+                       (unsigned int)sample.sequence);
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(APP_TEMP_MONITOR_PERIOD_MS));
     }
 }
 
@@ -59,36 +87,36 @@ int main(void)
 {
 
     BOARD_InitHardware();
-    BSP_SPI_Init();
-    if (!BSP_2OLEDS_Init())
+    if (!APP_Temp_CreateTask())
     {
-        PRINTF("Failed to initialize 2OLEDs.\r\n");
+        PRINTF("Failed to create temperature task.\r\n");
+        for (;;)
+        {
+        }
+    }    
+
+    if (!APP_UI_CreateTask())
+    {
+        /*
+         * 任务创建失败一般表示FreeRTOS堆空间不足。
+         * 此处停机，方便调试器定位。
+         */
         for (;;)
         {
         }
     }
-    // if (!APP_UI_CreateTask())
-    // {
-    //     /*
-    //      * 任务创建失败一般表示FreeRTOS堆空间不足。
-    //      * 此处停机，方便调试器定位。
-    //      */
-    //     for (;;)
-    //     {
-    //     }
-    // }
-    if (xTaskCreate(oled23_test_task,
-                    "oled23_test",
-                    configMINIMAL_STACK_SIZE + 128U,
+    if (xTaskCreate(app_temp_monitor_task,
+                    "temp_monitor",
+                    APP_TEMP_MONITOR_TASK_STACK_DEPTH,
                     NULL,
-                    tskIDLE_PRIORITY + 1U,
+                    APP_TEMP_MONITOR_TASK_PRIORITY,
                     NULL) != pdPASS)
     {
-        PRINTF("Failed to create oled23_test_task.\r\n");
+        PRINTF("Failed to create temperature monitor task.\r\n");
         for (;;)
         {
         }
-    }
+    }    
 
     vTaskStartScheduler();
 

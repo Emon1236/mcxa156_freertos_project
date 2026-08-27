@@ -67,7 +67,9 @@ mcux_add_source(
             UI/ui_platform.c
             UI/ui_platform.h
             bsp/bsp_2oleds.c
-            bsp/bsp_2oleds.h       
+            bsp/bsp_2oleds.h
+            app/app_temp_task.c
+            app/app_temp_task.h       
 )
 
 mcux_add_include(
