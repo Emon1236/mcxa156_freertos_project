@@ -165,6 +165,9 @@ bool BSP_2OLEDS_Init(void){
  */
 bool BSP_2OLEDS_Present(const uint8_t frameBuffer[BSP_2OLEDS_FRAME_BYTES]){
     bool success;
+    if (!s_pairInitialized || (frameBuffer == NULL)){
+        return false;
+    }
     success = bsp_2oleds_send_panel(BSP_2OLEDS_LEFT_PANEL, frameBuffer, BSP_2OLEDS_WIDTH, 0U);
     if(success){
         success = bsp_2oleds_send_panel(BSP_2OLEDS_RIGHT_PANEL, frameBuffer, BSP_2OLEDS_WIDTH, BSP_2OLEDS_PANEL_WIDTH);

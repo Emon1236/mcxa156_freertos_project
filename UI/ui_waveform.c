@@ -73,12 +73,25 @@ static int32_t ui_waveform_floor_to_step(int32_t value, int32_t step){
 static bool ui_waveform_approach_int32(int32_t *current, int32_t target, uint32_t deltaTimeMs, uint32_t responseMs){
     int32_t difference;
     int32_t step;
+    //
+    if (current == NULL){
+        return false;
+    }
+    //已经达到目标值时必须返回false，否则Menu_Update会认为动画一直在变化，导致三块OLED持续整屏刷新
+    if (*current == target){
+        return false;
+    }
+    //没有经过时间时不更新动画
+    if (deltaTimeMs == 0U){
+        return false;
+    }
     if (responseMs == 0U){
         *current = target;
         return true;
     }
     difference = target - *current;
     step = (int32_t)((int64_t)difference * deltaTimeMs / responseMs);
+    //整数除法结果为0时，至少移动一个单位防止动画永远到达不了目标值
     if(step == 0){
         step = (difference > 0) ? 1: -1;
     }
@@ -152,6 +165,9 @@ static bool ui_waveform_get_data_range(int16_t *minimumQ4, int16_t *maximumQ4){
     int16_t minimum;
     int16_t maximum;
 
+    if ((minimumQ4 == NULL) || (maximumQ4 == NULL) || (s_wave.validCount == 0U)){
+        return false;
+    }
     oldestIndex = ui_waveform_get_oldest_index();
 
     minimum = s_wave.samples[oldestIndex];

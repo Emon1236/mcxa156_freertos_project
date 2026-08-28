@@ -122,16 +122,22 @@ static void app_ui_task(void *parameter){
         }
 
         if (needRedraw){
+            const uint8_t *pairFrame = NULL;
+            // Menu_Render只在RAM中的U8G2帧缓冲里绘图，此时不占用SPI
             Menu_Render();
-            UI_Display_Present();
+            //UI_Display_Present();
             //2，3屏幕刷新和1号相互独立
-            if (pair23Ready){
-                const uint8_t *pairFrame;
-                //收到新温度；推出动画位置改变；推出页面需要清空2，3屏幕时返回true
-                if (UI_Waveform_PerpareFrame(&pairFrame)){
-                    (void)BSP_2OLEDS_Present(pairFrame);
+            if (pair23Ready && UI_Waveform_PerpareFrame(&pairFrame)){
+                if (!BSP_2OLEDS_Present(pairFrame))
+                {
+                    /*
+                    * 调试时在此处设置断点。
+                    * 如果进入这里，需要继续检查SPI Busy或传输错误。
+                    */
                 }
             }
+            //1号屏最后刷新。
+        UI_Display_Present();
         }
 
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(APP_UI_TASK_PERIOD_MS));
