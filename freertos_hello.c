@@ -18,7 +18,7 @@ int main(void)
 {
 
     BOARD_InitHardware();
-    if (!APP_Temp_CreateTask() || !APP_Temp_CreateTask())
+    if (!APP_Temp_CreateTask())
     {
         PRINTF("Failed to create temperature task.\r\n");
         for (;;)
