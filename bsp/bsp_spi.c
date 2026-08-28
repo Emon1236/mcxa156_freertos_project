@@ -19,7 +19,7 @@ BSP层 SPI驱动源文件
 #define BSP_SPI_MASTER_BASEADDR         LPSPI0
 #define BSP_SPI_MASTER_PCS_FOR_INIT     kLPSPI_Pcs0
 #define BSP_SPI_MASTER_PCS_FOR_TRANSFER kLPSPI_MasterPcs0
-#define BSP_SPI_MASTER_BAUDRATE         8000000U /* 8MHz，SSD1315可正常识别，后续可按需调高 */
+#define BSP_SPI_MASTER_BAUDRATE         4000000U /* 4MHz，SSD1315可正常识别，后续可按需调高 */
 
 static void bsp_spi_pin_init(void){
     CLOCK_EnableClock(kCLOCK_GatePORT1); //时钟使能,port1
