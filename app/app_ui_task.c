@@ -1,10 +1,12 @@
 #include "app/app_ui_task.h"
-
+#include "app/app_temp_task.h"
 #include "UI/menu.h"
 #include "UI/ui_display_port.h"
+#include "UI/ui_waveform.h"
 
 #include "bsp/bsp_button.h"
 #include "bsp/bsp_buzzer.h"
+#include "bsp/bsp_2oleds.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -50,10 +52,13 @@ bool APP_UI_CreateTask(void){
 static void app_ui_task(void *parameter){
     TickType_t lastWakeTime;
     TickType_t previousUpdateTick;
+    bool pair23Ready;
 
     (void)parameter;
 
     UI_Display_Init();
+    //共享RESET已完成，BSP_2OLEDs_Init只初始化2，3号控制器，不再复位
+    pair23Ready = BSP_2OLEDS_Init();
     BSP_Button_Init();
     BSP_Buzzer_Init();
     Menu_Init();
@@ -73,7 +78,23 @@ static void app_ui_task(void *parameter){
         bool needRedraw;
 
         needRedraw = false;
+        //将温度任务累积的消息全部取出
+        //没有其他任务修改波形，因此ui_waveform内部不需要互斥锁
+        for (;;){
+            app_temp_sample_t temperatureSample;
 
+            if (!APP_Temp_TryReceive(&temperatureSample)){
+                break;
+            }
+
+            if (UI_Waveform_AddTemperatureSample(temperatureSample.temperatureQ4, temperatureSample.valid)){
+                /*
+                * 当前正显示温度控制页面时，
+                * 温度变化需要刷新1号屏。
+                */
+                needRedraw = true;
+            }
+        }
         /*
          * 每20ms调用一次。
          * 当前按键驱动连续3次状态一致才确认，
@@ -103,6 +124,14 @@ static void app_ui_task(void *parameter){
         if (needRedraw){
             Menu_Render();
             UI_Display_Present();
+            //2，3屏幕刷新和1号相互独立
+            if (pair23Ready){
+                const uint8_t *pairFrame;
+                //收到新温度；推出动画位置改变；推出页面需要清空2，3屏幕时返回true
+                if (UI_Waveform_PerpareFrame(&pairFrame)){
+                    (void)BSP_2OLEDS_Present(pairFrame);
+                }
+            }
         }
 
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(APP_UI_TASK_PERIOD_MS));
