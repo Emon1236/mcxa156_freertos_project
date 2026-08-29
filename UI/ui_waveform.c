@@ -54,6 +54,18 @@ typedef struct{
 
 static ui_waveform_state_t s_wave;
 
+//添加一个手动量程表避免手动调整量程带来的波形中心偏移
+//手动量程采用固定等级。
+static const int32_t s_manualScaleSpansQ4[] = {
+    4 * 16,
+    8 * 16,
+    16 * 16,
+    32 * 16,
+    64 * 16,
+    128 * 16,
+    165 * 16
+};
+
 //返回有符号整数绝对值
 static int32_t ui_waveform_abs32(int32_t value){
     return (value < 0) ? -value : value;
@@ -310,7 +322,13 @@ static void ui_waveform_calculate_desired_range(int32_t *desiredMinQ4, int32_t *
     *desiredMinQ4 = selectedMinQ4;
     *desiredMaxQ4 = selectedMaxQ4;
 }
-
+/**
+ * @brief 将温度值映射到Y坐标
+ *          结果不再裁剪到0-63，大于0表示温度超出当前量程上线；大于63表示温度低于当前量程下限。
+ *          是否裁剪和连线由绘制函数决定。
+ * @param temperatureQ4 温度值，Q4格式
+ * @return 对应的Y坐标
+ */
 static uint8_t ui_waveform_map_temperature_to_y(int16_t temperatureQ4){
     int32_t rangeQ4;
     int32_t relativeQ4;
@@ -319,28 +337,28 @@ static uint8_t ui_waveform_map_temperature_to_y(int16_t temperatureQ4){
     rangeQ4 = s_wave.scaleMaxQ4 - s_wave.scaleMinQ4;
 
     if (rangeQ4 <= 0){
-        return UI_WAVEFORM_FRAME_HEIGHT / 2U;
+        return (int16_t)(UI_WAVEFORM_FRAME_HEIGHT / 2U);
     }
 
     relativeQ4 = (int32_t)temperatureQ4 - s_wave.scaleMinQ4;
+    //温度越高，OLEDY坐标越小
+    y = (int32_t)(UI_WAVEFORM_FRAME_HEIGHT - 1) - relativeQ4 * ((int32_t)(UI_WAVEFORM_FRAME_HEIGHT - 1)) / rangeQ4;
 
-    y = (UI_WAVEFORM_FRAME_HEIGHT - 1) - relativeQ4 * (UI_WAVEFORM_FRAME_HEIGHT - 1) / rangeQ4;
+    // if (y < 0){
+    //     y = 0;
+    // }
+    // else if (y >= UI_WAVEFORM_FRAME_HEIGHT){
+    //     y = UI_WAVEFORM_FRAME_HEIGHT - 1;
+    // }
 
-    if (y < 0){
-        y = 0;
-    }
-    else if (y >= UI_WAVEFORM_FRAME_HEIGHT){
-        y = UI_WAVEFORM_FRAME_HEIGHT - 1;
-    }
-
-    return (uint8_t)y;
+    return (int16_t)y;
 }
 
 static void ui_waveform_render_pair_frame(void){
     uint16_t oldestIndex;
     uint16_t startX;
     uint16_t i;
-    bool previousValid = false;
+    //bool previousValid = false;
     int16_t previousX = 0;
     int16_t previousY = 0;
 
@@ -375,11 +393,14 @@ static void ui_waveform_render_pair_frame(void){
      * x=246～255显示真实数据。
      */
     startX = UI_WAVEFORM_FRAME_WIDTH - s_wave.validCount;
+    // previousVisible表示前一个点是否位于屏幕有效范围
+    bool previousVisible = false;
 
     for (i = 0U; i < s_wave.validCount; i++){
         uint16_t sampleIndex;
         int16_t x;
         int16_t y;
+        bool currentVisible;
 
         sampleIndex = (uint16_t)((oldestIndex + i) % UI_WAVEFORM_SAMPLE_CAPACITY);
 
@@ -387,15 +408,35 @@ static void ui_waveform_render_pair_frame(void){
 
         y = (int16_t)(ui_waveform_map_temperature_to_y(s_wave.samples[sampleIndex]) + s_wave.entryOffsetY);
 
-        if (previousValid){
-            ui_waveform_draw_line(previousX, previousY, x, y);
-        }else{
+        currentVisible = (y>=0) && (y < (int16_t)UI_WAVEFORM_FRAME_HEIGHT);
+        if(!currentVisible){//超出屏幕边界后
+            if (s_wave.entryOffsetY == 0){
+                int16_t edgeY;
+                edgeY = (y < 0) ? 0 : (int16_t)(UI_WAVEFORM_FRAME_HEIGHT - 1U);
+                ui_waveform_draw_point(x, edgeY);
+            }
+            previousVisible = false;
+            continue;
+        }
+        if (previousVisible){
+            int32_t verticalDifference;
+            verticalDifference = ui_waveform_abs32((int32_t)y - (int32_t)previousY);
+            if (verticalDifference <= (int32_t)(UI_WAVEFORM_FRAME_HEIGHT / 2U)){
+                ui_waveform_draw_line(previousX, previousY, x, y);
+            }
+            else{
+                ui_waveform_draw_point(x, y);
+            }
+        }
+        else{
             ui_waveform_draw_point(x, y);
         }
-
         previousX = x;
         previousY = y;
-        previousValid = true;
+        previousVisible = true;
+        // previousX = x;
+        // previousY = y;
+        // previousValid = true;
     } 
 }
 // 将温度值格式化为字符串，单位为摄氏度，保留一位小数。
@@ -633,96 +674,118 @@ bool UI_Waveform_Update(uint32_t deltaTimeMs)
 
     return changed;
 }
+
+/**
+ * 手动量程表
+ * 优先以最新温度为中心，让当前温度保持在屏幕中央附近。
+ * 尚未取得有效温度时，才使用当前目标量程中心
+ */
+
+static int32_t ui_waveform_get_manual_center_q4(void){
+    if (s_wave.hasCurrentTemperature){
+        return s_wave.currentTemperatureQ4;
+    }
+
+    return (s_wave.scaleTargetMinQ4 + s_wave.scaleTargetMaxQ4) / 2;
+}
+/*
+ * 根据中心值和显示跨度设置手动目标量程。
+ *
+ * 如果目标范围超过传感器物理边界，会整体平移回来，
+ * 而不是只修改其中一个边界。
+ */
+static void ui_waveform_set_manual_target(int32_t centerQ4, int32_t spanQ4){
+    int32_t physicalSpanQ4;
+    int32_t minimumQ4;
+    int32_t maximumQ4;
+
+    physicalSpanQ4 = UI_WAVEFORM_SENSOR_MAX_Q4 - UI_WAVEFORM_SENSOR_MIN_Q4;
+
+    if (spanQ4 < UI_WAVEFORM_MIN_SPAN_Q4){
+        spanQ4 = UI_WAVEFORM_MIN_SPAN_Q4;
+    } 
+    if (spanQ4 >= physicalSpanQ4){
+         s_wave.scaleTargetMinQ4 = UI_WAVEFORM_SENSOR_MIN_Q4;
+        s_wave.scaleTargetMaxQ4 = UI_WAVEFORM_SENSOR_MAX_Q4;
+        return;
+    }
+    minimumQ4 = centerQ4 - spanQ4 / 2;
+    maximumQ4 = minimumQ4 + spanQ4;
+    // 低端越界时，将整个窗口上移
+    if (minimumQ4 < UI_WAVEFORM_SENSOR_MIN_Q4){
+        minimumQ4 = UI_WAVEFORM_SENSOR_MIN_Q4;
+        maximumQ4 = minimumQ4 + spanQ4;
+    } 
+    // 高端越界时，将整个窗口下移
+    if (maximumQ4 > UI_WAVEFORM_SENSOR_MAX_Q4){
+        maximumQ4 = UI_WAVEFORM_SENSOR_MAX_Q4;
+        minimumQ4 = maximumQ4 - spanQ4;
+    }
+    s_wave.scaleTargetMinQ4 = minimumQ4;
+    s_wave.scaleTargetMaxQ4 = maximumQ4;  
+}
 void UI_Waveform_ScaleIn(void)
 {
-    int32_t spanQ4;
+    int32_t currentSpanQ4;
+    int32_t newSpanQ4;
     int32_t centerQ4;
+    uint8_t i;
 
     if (!s_wave.active)
     {
         return;
     }
 
-    spanQ4 =
-        s_wave.scaleTargetMaxQ4 -
-        s_wave.scaleTargetMinQ4;
-
-    spanQ4 /= 2;
-
-    if (spanQ4 < UI_WAVEFORM_MIN_SPAN_Q4)
-    {
-        spanQ4 = UI_WAVEFORM_MIN_SPAN_Q4;
+    currentSpanQ4 = s_wave.scaleTargetMaxQ4 - s_wave.scaleTargetMinQ4;
+    newSpanQ4 = s_manualScaleSpansQ4[0];
+    //
+    for (i = 0U; i < (uint8_t)(sizeof(s_manualScaleSpansQ4) / sizeof(s_manualScaleSpansQ4[0])); i++){
+        if (s_manualScaleSpansQ4[i] >= currentSpanQ4){
+            break;
+        }
+        newSpanQ4 = s_manualScaleSpansQ4[i];
     }
-
-    centerQ4 =
-        (s_wave.scaleTargetMinQ4 +
-         s_wave.scaleTargetMaxQ4) / 2;
-
-    s_wave.scaleTargetMinQ4 =
-        centerQ4 - spanQ4 / 2;
-
-    s_wave.scaleTargetMaxQ4 =
-        s_wave.scaleTargetMinQ4 + spanQ4;
-
+    centerQ4 = ui_waveform_get_manual_center_q4();
+    ui_waveform_set_manual_target(centerQ4, newSpanQ4);
     s_wave.scaleMode = UI_WAVEFORM_SCALE_HOLD;
+    s_wave.shrinkStableMs = 0U;
     s_wave.pairFrameDirty = true;
 }
 
-void UI_Waveform_ScaleOut(void)
-{
-    int32_t spanQ4;
+void UI_Waveform_ScaleOut(void){
+    int32_t currentSpanQ4;
+    int32_t newSpanQ4;
     int32_t centerQ4;
-    int32_t physicalSpanQ4;
+    uint8_t i;
+    uint8_t count;
 
-    if (!s_wave.active)
-    {
+    if (!s_wave.active){
         return;
     }
 
-    physicalSpanQ4 =
-        UI_WAVEFORM_SENSOR_MAX_Q4 -
-        UI_WAVEFORM_SENSOR_MIN_Q4;
+    count = (uint8_t)(sizeof(s_manualScaleSpansQ4) / sizeof(s_manualScaleSpansQ4[0]));
 
-    spanQ4 =
-        (s_wave.scaleTargetMaxQ4 -
-         s_wave.scaleTargetMinQ4) * 2;
+    currentSpanQ4 = s_wave.scaleTargetMaxQ4 - s_wave.scaleTargetMinQ4;
 
-    if (spanQ4 > physicalSpanQ4)
-    {
-        spanQ4 = physicalSpanQ4;
+    newSpanQ4 = s_manualScaleSpansQ4[count - 1U];
+
+    /*
+     * 查找严格大于当前跨度的最小一级。
+     */
+    for (i = 0U; i < count; i++){
+        if (s_manualScaleSpansQ4[i] > currentSpanQ4){
+            newSpanQ4 = s_manualScaleSpansQ4[i];
+            break;
+        }
     }
 
-    centerQ4 =
-        (s_wave.scaleTargetMinQ4 +
-         s_wave.scaleTargetMaxQ4) / 2;
+    centerQ4 = ui_waveform_get_manual_center_q4();
 
-    s_wave.scaleTargetMinQ4 =
-        centerQ4 - spanQ4 / 2;
-
-    s_wave.scaleTargetMaxQ4 =
-        s_wave.scaleTargetMinQ4 + spanQ4;
-
-    if (s_wave.scaleTargetMinQ4 <
-        UI_WAVEFORM_SENSOR_MIN_Q4)
-    {
-        s_wave.scaleTargetMinQ4 =
-            UI_WAVEFORM_SENSOR_MIN_Q4;
-
-        s_wave.scaleTargetMaxQ4 =
-            s_wave.scaleTargetMinQ4 + spanQ4;
-    }
-
-    if (s_wave.scaleTargetMaxQ4 >
-        UI_WAVEFORM_SENSOR_MAX_Q4)
-    {
-        s_wave.scaleTargetMaxQ4 =
-            UI_WAVEFORM_SENSOR_MAX_Q4;
-
-        s_wave.scaleTargetMinQ4 =
-            s_wave.scaleTargetMaxQ4 - spanQ4;
-    }
+    ui_waveform_set_manual_target(centerQ4, newSpanQ4);
 
     s_wave.scaleMode = UI_WAVEFORM_SCALE_HOLD;
+
+    s_wave.shrinkStableMs = 0U;
     s_wave.pairFrameDirty = true;
 }
 
