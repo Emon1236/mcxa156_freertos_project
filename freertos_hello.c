@@ -11,12 +11,21 @@
 #include "app.h"
 
 #include "app/app_ui_task.h"
+#include "app/app_temp_task.h"
 
 
 int main(void)
 {
 
     BOARD_InitHardware();
+    if (!APP_Temp_CreateTask())
+    {
+        PRINTF("Failed to create temperature task.\r\n");
+        for (;;)
+        {
+        }
+    }    
+
     if (!APP_UI_CreateTask())
     {
         /*
@@ -27,6 +36,7 @@ int main(void)
         {
         }
     }
+  
 
     vTaskStartScheduler();
 

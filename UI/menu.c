@@ -123,7 +123,7 @@ static void menu_action_dark_mode(void);
 
 /* 功能页面。 */
 static void menu_action_sleep(void);
-static void menu_action_voltage(void);
+//static void menu_action_voltage(void);
 static void menu_action_hid(void);
 static void menu_action_save_settings(void);
 static void menu_action_coming_soon(void);
@@ -149,11 +149,15 @@ static void menu_transition_commit(void);
 static void menu_show_notice(const char *message);
 
 /* 波形采样适配。 */
-static bool menu_read_voltage(uint16_t *millivolts);
+//static bool menu_read_voltage(uint16_t *millivolts);
+
+static void menu_action_temperature(void);
 
 static const menu_page_t s_editorPage;
 static const menu_page_t s_settingsPage;
 static const menu_page_t s_aboutPage;
+static const menu_page_t s_wavePage;
+
 
 /* Editor列表：保留参考工程的功能入口。 */
 static const menu_item_t s_editorItems[] =
@@ -413,6 +417,26 @@ static const menu_item_t s_settingsItems[] ={
         .action = NULL
     }
 };
+static const menu_item_t s_waveItems[] ={
+    {
+        .label = "TEMP SENSOR",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_temperature
+    },
+    {
+        .label = "VOLT",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_coming_soon
+    } 
+};
+static const menu_page_t s_wavePage = {
+    .items = s_waveItems,
+    .itemCount =
+        (uint8_t)(sizeof(s_waveItems) /
+                  sizeof(s_waveItems[0]))
+};
 
 static const menu_page_t s_settingsPage =
 {
@@ -437,10 +461,10 @@ static const menu_item_t s_rootItems[] =
         .action = NULL
     },
     {
-        .label = "Volt",
+        .label = "Wave",
         .getLabel = NULL,
-        .childPage = NULL,
-        .action = menu_action_voltage
+        .childPage = &s_wavePage,
+        .action = NULL
     },
     {
         .label = "Setting",
@@ -563,7 +587,8 @@ static void menu_transition_commit(void){
 
         case MENU_TRANSITION_OPEN_WAVEFORM:
             s_currentView = MENU_VIEW_WAVEFORM;
-            UI_Waveform_Reset();
+            // Enter只开始显示和推出动画
+            UI_Waveform_Enter();
             break;
 
         case MENU_TRANSITION_OPEN_SLEEP:
@@ -633,10 +658,6 @@ static void menu_show_notice(const char *message){
         NULL);
 }
 
-/* ui_waveform与MCXA156平台采样接口之间的适配函数。 */
-static bool menu_read_voltage(uint16_t *millivolts){
-    return UI_Platform_ReadVoltageMillivolts(millivolts);
-}
 
 /* 获得菜单项最终需要显示的文字。 */
 static const char *menu_get_item_label(const menu_item_t *item)
@@ -1504,7 +1525,13 @@ static void menu_action_sleep(void)
         NULL);
 }
 
-static void menu_action_voltage(void)
+// static void menu_action_voltage(void)
+// {
+//     menu_transition_begin(
+//         MENU_TRANSITION_OPEN_WAVEFORM,
+//         NULL);
+// }
+static void menu_action_temperature(void)
 {
     menu_transition_begin(
         MENU_TRANSITION_OPEN_WAVEFORM,
@@ -1521,7 +1548,7 @@ void Menu_Init(void){
     //默认亮度同步到OLED
     menu_apply_display_brightness(APP_Settings_Get()->displayBrightness);
     UI_Window_SetAnimationResponseMs(APP_Settings_Get()->windowAnimationMs);
-    UI_Waveform_Init(menu_read_voltage);
+    UI_Waveform_Init();
     UI_Effects_FadeReset();
 
     s_transition.active = false;
@@ -1583,11 +1610,45 @@ bool Menu_HandleKey(menu_key_t key){
     }
     //波形页面只处理返回键
     if (s_currentView == MENU_VIEW_WAVEFORM){
-        if (key == MENU_KEY_BACK){
-            menu_transition_begin(MENU_TRANSITION_RETURN_TO_MENU, NULL);
-            return true;
-        }
-        return false;        
+        switch (key){
+            case MENU_KEY_UP:
+                /*
+                * B1缩小量程并进入HOLD。
+                */
+                UI_Waveform_ScaleIn();
+                return true;
+
+            case MENU_KEY_DOWN:
+                /*
+                * B2扩大量程并进入HOLD。
+                */
+                UI_Waveform_ScaleOut();
+                return true;
+
+            case MENU_KEY_OK:
+                /*
+                * B3切换AUTO/HOLD。
+                * 1号屏不绘制按键说明，只显示模式。
+                */
+                UI_Waveform_ToggleAutoHold();
+                return true;
+
+            case MENU_KEY_BACK:
+                /*
+                * 先请求2、3号屏清空，
+                * 再让1号屏淡出返回Wave二级菜单。
+                */
+                UI_Waveform_Leave();
+
+                menu_transition_begin(
+                    MENU_TRANSITION_RETURN_TO_MENU,
+                    NULL);
+
+                return true;
+
+            default:
+                return false;
+        }        
     }
 
     //睡眠页面只处理返回和确认键，屏幕关闭时看不到淡出
@@ -1682,7 +1743,7 @@ void Menu_Render(void){
             break;
 
         case MENU_VIEW_WAVEFORM:
-            UI_Waveform_Draw(u8g2);
+            UI_Waveform_DrawControl(u8g2);
             break;
 
         case MENU_VIEW_SLEEP:
