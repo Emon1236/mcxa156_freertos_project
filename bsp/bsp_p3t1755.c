@@ -1,3 +1,13 @@
+/*
+ * @file bsp_p3t1755.c
+ * @brief 驱动板载P3T1755温度传感器的初始化和温度读取功能。
+ * 尽管官方手册上说明配置I3C通信协议需要拆除板载R55和R57电阻
+ * 但拆除R55和R57只是为I3C高速通信提供电气环境，保留他们同样可以
+ * 使用I3C协议配置支持I3C协议的从设备。
+ * 判断通信链路是否使用I3C协议，从静态地址映射动态地址映射是否成功，
+ * 数据是否从动态地址成功读取。
+*/
+
 #include "bsp/bsp_p3t1755.h"
 #include "bsp/bsp_i3c.h"
 
@@ -42,20 +52,13 @@ status_t BSP_P3T1755_Init(void){
     /*
      * 清除设备上一次运行时可能保留的动态地址。
      * 该操作只应在初始化阶段执行一次。
-     */
-    status = BSP_I3C_ResetDynamicAddresses();
-    if (status != kStatus_Success){
-        return status;
-    }
-
-    /*
-     * 清除总线上所有I3C设备之前保存的动态地址
      * 避免MCU软复位后，传感器仍然保留上一次的动态地址造成SETDASA失败
      */
     status = BSP_I3C_ResetDynamicAddresses();
     if (status != kStatus_Success){
         return status;
     }
+
     // 将静态地址0x48映射为动态地址0x08
     status = BSP_I3C_SetDynamicAddress(
         P3T1755_STATIC_ADDRESS,
