@@ -11,70 +11,108 @@
 #include "app.h"
 
 #include "app/app_ui_task.h"
-#include "FOC/AS5600.h"
+#include "FOC/FOC.h"
 
-static void as5600_test_task(void *parameter)
+static void foc_openloop_test_task(void *parameter)
 {
-    status_t status;
-    uint16_t rawAngle;
-    uint32_t angleMilliDegrees;
+    TickType_t lastWakeTime;
+    uint32_t printCounter;
+    float targetMechanicalSpeed;
+    float Uq;
 
     (void)parameter;
 
+    /*
+     * velocityopenloop()中的target单位是rad/s。
+     *
+     * 60RPM = 1转/秒 = 2π rad/s。
+     *
+     * 商家示例直接传入60，实际表示60rad/s，
+     * 大约等于573RPM，而不是60RPM。
+     */
+    targetMechanicalSpeed = 6.28318530718f;
+
+    lastWakeTime = xTaskGetTickCount();
+    printCounter = 0U;
+
     for (;;)
     {
-        status = AS5600_ReadRawAngle(&rawAngle);
+        Uq = velocityopenloop(
+            targetMechanicalSpeed);
 
-        if (status == kStatus_Success)
+        /*
+         * 每500次输出一次，避免PRINTF严重干扰1ms控制周期。
+         */
+        printCounter++;
+
+        if (printCounter >= 500U)
         {
-            /*
-             * 这里直接由已经读取的rawAngle计算角度，
-             * 避免再调用一次读取函数、重复访问总线。
-             */
-            angleMilliDegrees =
-                ((uint32_t)rawAngle * 360000U +
-                 AS5600_COUNTS_PER_REVOLUTION / 2U) /
-                AS5600_COUNTS_PER_REVOLUTION;
+            printCounter = 0U;
 
             PRINTF(
-                "AS5600 raw=%u, angle=%u.%03u deg\r\n",
-                (unsigned int)rawAngle,
-                (unsigned int)(angleMilliDegrees / 1000U),
-                (unsigned int)(angleMilliDegrees % 1000U));
-        }
-        else
-        {
-            PRINTF("AS5600 read failed: %d\r\n", (int)status);
+                "OpenLoop: Uq=%d mV, "
+                "angle=%d mrad, "
+                "duty=%u/%u/%u\r\n",
+                (int)(Uq * 1000.0f),
+                (int)(shaft_angle * 1000.0f),
+                (unsigned int)(dc_a * 1000.0f),
+                (unsigned int)(dc_b * 1000.0f),
+                (unsigned int)(dc_c * 1000.0f));
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100U));
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(5U));
     }
 }
 
+
 int main(void)
 {
+    status_t status;
 
     BOARD_InitHardware();
-    AS5600_Init();
-    if (!APP_UI_CreateTask())
+
+    PRINTF("System boot.\r\n");
+
+    status = FOC_Init(12.6f);
+
+    PRINTF("FOC_Init returned: %d\r\n", (int)status);
+
+    if (status != kStatus_Success)
     {
-        /*
-         * 任务创建失败一般表示FreeRTOS堆空间不足。
-         * 此处停机，方便调试器定位。
-         */
-        for (;;)
-        {
-        }
-    }
-    if (xTaskCreate(as5600_test_task, "AS5600 Test Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 1, NULL) != pdPASS)
-    {
-        PRINTF("Failed to create AS5600 test task.\r\n");
         for (;;)
         {
         }
     }
 
+    if (xTaskCreate(foc_openloop_test_task,
+                    "FOC OpenLoop",
+                    configMINIMAL_STACK_SIZE + 256U,
+                    NULL,
+                    tskIDLE_PRIORITY + 3U,
+                    NULL) != pdPASS)
+    {
+        PRINTF("Failed to create FOC task.\r\n");
+
+        for (;;)
+        {
+        }
+    }
+
+    if (!APP_UI_CreateTask())
+    {
+        PRINTF("Failed to create UI task.\r\n");
+
+        for (;;)
+        {
+        }
+    }
+
+    PRINTF("Starting scheduler, tick rate=%u Hz.\r\n",
+           (unsigned int)configTICK_RATE_HZ);
+
     vTaskStartScheduler();
+
+    PRINTF("Scheduler returned unexpectedly.\r\n");
 
     for (;;)
     {

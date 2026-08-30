@@ -13,6 +13,9 @@
 #include "fsl_port.h"
 #include "fsl_reset.h"
 
+#include "FreeRTOS.h"
+#include "semphr.h"
+
 //使用A156的I3C0控制器，SDA=P0_16,SCL=P0_17,PUR=P1_11
 #define BSP_I3C_BASE I3C0
 #define BSP_I3C_SDA_PORT PORT0
@@ -35,6 +38,33 @@
 #define BSP_I3C_CCC_SETDASA 0x87U
 
 static bool s_i3cInitialized = false;
+
+//等待任务的最长时间
+#define BSP_I3C_MUTEX_WAIT_TICKS pdMS_TO_TICKS(10U)
+//SemaphoreHandle_t是freertos管理锁的句柄，s_表示该变量只能在.c中使用，i3cBus表示保护整个I3C0物理总线
+// Mutex表示该对象是FreeRTOS互斥锁
+static SemaphoreHandle_t s_i3cBusMutex = NULL;
+
+//申请I3C总线独占
+static status_t bsp_i3c_take_bus(void){
+    if (s_i3cBusMutex == NULL){
+        return kStatus_Fail;
+    }
+
+    if (xSemaphoreTake(s_i3cBusMutex, BSP_I3C_MUTEX_WAIT_TICKS) != pdTRUE){
+        return kStatus_I3C_Busy;
+    }
+
+    return kStatus_Success;
+}
+//释放I3C总线
+static void bsp_i3c_give_bus(void){
+    if (s_i3cBusMutex != NULL)
+    {
+        (void)xSemaphoreGive(s_i3cBusMutex);
+    }
+}
+
 
 //将BSP层使用的总线类型转换为SDK层使用的总线类型
 static status_t bsp_i3c_convert_bus_type(bsp_i3c_bus_t busType, i3c_bus_type_t *sdkBusType){
@@ -100,6 +130,14 @@ static void bsp_i3c_init_pins(void){
 status_t BSP_I3C_Init(void){
     i3c_master_config_t masterConfig;
     uint32_t sourceClockHz;
+    //总线初始化必须在创建温度和编码器任务之前
+    //xSemaphoreCreateMutex()从FreeRTOS堆中创建互斥锁。如果返回NULL表示RTOS堆空间不足
+    if (s_i3cBusMutex == NULL){
+        s_i3cBusMutex = xSemaphoreCreateMutex();
+        if (s_i3cBusMutex == NULL){
+            return kStatus_Fail;
+        }
+    }
 
     if (s_i3cInitialized){
         return kStatus_Success;
@@ -198,17 +236,22 @@ status_t BSP_I3C_WriteRegister(uint8_t deviceAddress, uint32_t registerAddress, 
 
     transfer.subaddress = registerAddress;
     transfer.subaddressSize = registerAddressSize;
-
     /*
-     * SDK结构体中的data是void *，
-     * 写操作不会修改调用者提供的数据。
+     * SDK结构体中的data是void *，写操作不会修改调用者提供的数据。
      */
     transfer.data = (void *)data;
     transfer.dataSize = dataSize;
-
     transfer.flags = kI3C_TransferDefaultFlag;
+    //操作I3C硬件时加锁，参数检查和结构体填充都不需要占用总线，放在锁外缩短持有时间
+    status = bsp_i3c_take_bus();
+    if (status != kStatus_Success){
+        return status;
+    }
 
-    return I3C_MasterTransferBlocking(BSP_I3C_BASE, &transfer);    
+    status = I3C_MasterTransferBlocking(BSP_I3C_BASE, &transfer); 
+    //不管成功失败都要释放锁
+    bsp_i3c_give_bus();
+    return status;
 }
 
 status_t BSP_I3C_ReadRegister(uint8_t deviceAddress, uint32_t registerAddress, size_t registerAddressSize, uint8_t *data,
@@ -249,10 +292,16 @@ status_t BSP_I3C_ReadRegister(uint8_t deviceAddress, uint32_t registerAddress, s
 
     transfer.data = data;
     transfer.dataSize = dataSize;
-
     transfer.flags = kI3C_TransferDefaultFlag;
 
-    return I3C_MasterTransferBlocking(BSP_I3C_BASE, &transfer);
+    status = bsp_i3c_take_bus();
+    if (status != kStatus_Success){
+        return status;
+    }
+
+    status = I3C_MasterTransferBlocking(BSP_I3C_BASE, &transfer);
+    bsp_i3c_give_bus();
+    return status;
 }
 /*
  * 发送广播CCC命令RSTDAA，
@@ -278,6 +327,7 @@ status_t BSP_I3C_ResetDynamicAddresses(void){
  *
  * staticAddress ：设备原始静态地址。
  * dynamicAddress：准备分配的I3C动态地址。
+ * 由两个连续传输组成，中间不能被AS5600任务插入，所以要一次性持有锁。
  */
 status_t BSP_I3C_SetDynamicAddress(uint8_t staticAddress, uint8_t dynamicAddress){
     i3c_master_transfer_t transfer = {0};
@@ -301,6 +351,10 @@ status_t BSP_I3C_SetDynamicAddress(uint8_t staticAddress, uint8_t dynamicAddress
      * 此处不能产生STOP，因为后面还要继续发送
      * 目标设备的静态地址和新动态地址。
      */
+    status = bsp_i3c_take_bus();
+    if (status != kStatus_Success){
+        return status;
+    }
     command = BSP_I3C_CCC_SETDASA;
 
     transfer.slaveAddress = BSP_I3C_BROADCAST_ADDRESS;
@@ -313,6 +367,7 @@ status_t BSP_I3C_SetDynamicAddress(uint8_t staticAddress, uint8_t dynamicAddress
     status = I3C_MasterTransferBlocking(BSP_I3C_BASE, &transfer);
 
     if (status != kStatus_Success){
+        bsp_i3c_give_bus();
         return status;
     }
 
@@ -331,8 +386,10 @@ status_t BSP_I3C_SetDynamicAddress(uint8_t staticAddress, uint8_t dynamicAddress
     transfer.data = &encodedDynamicAddress;
     transfer.dataSize = 1U;
     transfer.flags = kI3C_TransferDefaultFlag;
-
-    return I3C_MasterTransferBlocking(BSP_I3C_BASE, &transfer);
+    
+    status = I3C_MasterTransferBlocking(BSP_I3C_BASE, &transfer);
+    bsp_i3c_give_bus();
+    return status;
 }
 /* 返回当前I3C0功能时钟频率，单位Hz。 */
 uint32_t BSP_I3C_GetClockFrequency(void){

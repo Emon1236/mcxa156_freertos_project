@@ -69,7 +69,12 @@ mcux_add_source(
             bsp/bsp_i2c.c
             bsp/bsp_i2c.h
             FOC/AS5600.c
-            FOC/AS5600.h       
+            FOC/AS5600.h
+            bsp/bsp_motor_pwm.c
+            bsp/bsp_motor_pwm.h
+            FOC/FOC.h
+            FOC/FOC.c
+            FOC/foc_openloop.c       
 )
 
 mcux_add_include(
