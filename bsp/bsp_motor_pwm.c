@@ -1,3 +1,13 @@
+/**
+ * @file bsp_motor_pwm.c
+ * 电机PWM的驱动端口使用的FlexPWM0模块，映射端口为P3_6、P3_8、P3_10。
+ * 需要注意的是，当前硬件的电机驱动板要给motor_en接入3.3V使能才可以驱动电机
+ * 至于原本原理图种显示的M0_EN和M1_EN(现motor_en)则忽略
+ *************************************************************
+ * 
+ */
+
+
 #include "bsp/bsp_motor_pwm.h"
 
 #include "fsl_clock.h"

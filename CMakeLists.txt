@@ -74,7 +74,9 @@ mcux_add_source(
             bsp/bsp_motor_pwm.h
             FOC/FOC.h
             FOC/FOC.c
-            FOC/foc_openloop.c       
+            FOC/foc_openloop.c
+            app/app_motor_task.c
+            app/app_motor_task.h       
 )
 
 mcux_add_include(

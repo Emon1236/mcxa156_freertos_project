@@ -19,7 +19,7 @@ float dc_b = 0.0f;
 float dc_c = 0.0f;
 
 //电机允许的最大Uq电压，施加给旋转电压矢量的最大赋值，直观感受就是控制电机扭矩的物理量
-float voltage_limit = 5.0f;extern float shaft_angle;
+float voltage_limit = 1.0f;
 //在FOC_Init函数中初始化电源电压
 float voltage_power_supply = 0.0f;
 //电机极对数
