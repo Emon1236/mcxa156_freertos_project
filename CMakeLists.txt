@@ -76,7 +76,9 @@ mcux_add_source(
             FOC/FOC.c
             FOC/foc_openloop.c
             app/app_motor_task.c
-            app/app_motor_task.h       
+            app/app_motor_task.h  
+            app/app_buzzer_task.c
+            app/app_buzzer_task.h     
 )
 
 mcux_add_include(

@@ -25,9 +25,6 @@ extern "C" {
 // #define MENU_LIST_CURSOR_WIDTH_RESPONSE_MS 90U
 // #define MENU_LIST_BAR_RESPONSE_MS          100U
 
-//按键音参数
-#define MENU_KEY_TONE_HZ 2000U
-#define MENU_KEY_TONE_MS 50U
 
 /*
  * 一级菜单图标布局参数
@@ -54,10 +51,16 @@ typedef enum{
     MENU_KEY_OK,
     MENU_KEY_BACK
 }menu_key_t;
+// 一次菜单按键处理的结果
+typedef struct{
+    bool needRedraw;          /* 是否需要刷新显示 */
+    bool requestKeyFeedback;  /* 是否请求本次按键反馈 */
+} menu_key_result_t;
+
 
 void Menu_Init(void);//初始化菜单数据；新增初始化菜单动画位置
 
-bool Menu_HandleKey(menu_key_t key);//处理按键事件；新增改变动画目标值，光标不再立刻跳转到最终位置
+menu_key_result_t Menu_HandleKey(menu_key_t key);//处理按键事件；新增改变动画目标值，光标不再立刻跳转到最终位置
 
 bool Menu_Update(uint32_t deltaTimeMs); //新增，更新一帧动画，返回true表示动画位置发生变化，当前帧需要重绘
 

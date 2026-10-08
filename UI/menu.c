@@ -17,7 +17,7 @@
 #include "UI/ui_waveform.h"
 
 // #include "bsp/bsp_4oleds.h"
-#include "bsp/bsp_buzzer.h"
+//#include "bsp/bsp_buzzer.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -1310,14 +1310,14 @@ static void menu_render_notice(void){
     u8g2_DrawStr(u8g2, backX, 50, backText);
 }
 
-/* 根据当前设置播放按键音。 */
-static void menu_play_key_tone(void){
-    const app_settings_t *settings = APP_Settings_Get();
+// /* 根据当前设置播放按键音。 */
+// static void menu_play_key_tone(void){
+//     const app_settings_t *settings = APP_Settings_Get();
 
-    if (settings->keySoundEnabled){
-        BSP_Buzzer_PlayTone(MENU_KEY_TONE_HZ, MENU_KEY_TONE_MS);
-    }
-}
+//     if (settings->keySoundEnabled){
+//         BSP_Buzzer_PlayTone(MENU_KEY_TONE_HZ, MENU_KEY_TONE_MS);
+//     }
+// }
 
 /* SETTINGS动态文字。 */
 static const char *menu_get_font_label(void){
@@ -1544,31 +1544,20 @@ void Menu_Init(void){
     menu_tile_init();
 }
 
-bool Menu_HandleKey(menu_key_t key){
-    //页面淡出时忽略输入
-    if (s_transition.active){
-        return false;
-    }
-
-    /* 在修改KEY SOUND设置之前播放声音。
-     * 因此从ON改成OFF时，这一次仍然会响；从OFF改成ON时，从下一次按键开始响。
-     */
-    menu_play_key_tone();
-    //优先处理弹窗
+//内部函数，只处理菜单动作，返回是否需要重绘
+static bool menu_handle_key_action(menu_key_t key)
+{
+    // 优先处理弹窗
     if (UI_Window_IsVisible()){
     switch (key){
         case MENU_KEY_UP:
             return UI_Window_HandleInput(UI_WINDOW_INPUT_DECREASE);
-
         case MENU_KEY_DOWN:
             return UI_Window_HandleInput(UI_WINDOW_INPUT_INCREASE);
-
         case MENU_KEY_OK:
             return UI_Window_HandleInput(UI_WINDOW_INPUT_CONFIRM);
-
         case MENU_KEY_BACK:
             return UI_Window_HandleInput(UI_WINDOW_INPUT_CANCEL);
-
         default:
             return false;
         }
@@ -1608,7 +1597,6 @@ bool Menu_HandleKey(menu_key_t key){
             // menu_move_up();
             // return true;
             return menu_list_move(-1);
-
         case MENU_KEY_DOWN:
             if(s_menuDepth ==0U){
                 return menu_tile_move(1);   //按键2选择下一个图标
@@ -1616,20 +1604,42 @@ bool Menu_HandleKey(menu_key_t key){
             // menu_move_down();
             // return true;
             return menu_list_move(1);
-
         case MENU_KEY_OK:
             if((s_menuDepth > 0U) && (s_menuAnimation.phase != MENU_LIST_PHASE_ACTIVE)){
                 return false;
             }
             menu_activate_selected_item();
             return true;
-
         case MENU_KEY_BACK:
             return menu_go_back();
 
         default:
             return false;
     }
+}
+
+menu_key_result_t Menu_HandleKey(menu_key_t key)
+{
+    menu_key_result_t result = {
+        .needRedraw = false,
+        .requestKeyFeedback = false
+    };
+    /* 页面过渡期间忽略输入，也不请求按键反馈。 */
+    if (s_transition.active){
+        return result;
+    }
+    /*
+     * 必须在处理菜单动作之前读取设置：
+     *
+     * ON -> OFF：本次仍请求反馈。
+     * OFF -> ON：本次不请求反馈，从下次开始。
+     *
+     *这里只生成结果，不调用 App、蜂鸣器或 RTOS。
+     */
+    result.requestKeyFeedback = APP_Settings_Get()->keySoundEnabled;
+    result.needRedraw = menu_handle_key_action(key);
+
+    return result;
 }
 
 bool Menu_Update(uint32_t deltaTimeMs){
