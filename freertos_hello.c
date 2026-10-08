@@ -11,6 +11,7 @@
 #include "app.h"
 
 #include "app/app_ui_task.h"
+#include "app/app_buzzer_task.h"
 #include "FOC/FOC.h"
 #include "app/app_motor_task.h"
 
@@ -36,6 +37,10 @@ int main(void)
 
     if (!Foc_openloop_Createdtask()){
         PRINTF("Failed to create FOC task.\r\n");
+        for (;;){}
+    }
+    if (!APP_Buzzer_CreateTask()){
+        PRINTF("Failed to create buzzer task.\r\n");
         for (;;){}
     }
 
