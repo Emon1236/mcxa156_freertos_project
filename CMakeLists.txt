@@ -70,7 +70,6 @@ mcux_add_source(
             bsp/bsp_2oleds.h
             app/app_temp_task.c
             app/app_temp_task.h       
-            UI/ui_platform.h
             bsp/bsp_i2c.c
             bsp/bsp_i2c.h
             FOC/AS5600.c
