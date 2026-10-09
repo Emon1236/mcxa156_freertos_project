@@ -51,8 +51,7 @@ status_t BSP_P3T1755_Init(void){
 
     /*
      * 清除设备上一次运行时可能保留的动态地址。
-     * 该操作只应在初始化阶段执行一次。
-     * 避免MCU软复位后，传感器仍然保留上一次的动态地址造成SETDASA失败
+     * 该操作只应在初始化阶段执行一次。避免MCU软复位后，传感器仍然保留上一次的动态地址造成SETDASA失败
      */
     status = BSP_I3C_ResetDynamicAddresses();
     if (status != kStatus_Success){
@@ -67,11 +66,8 @@ status_t BSP_P3T1755_Init(void){
         return status;
     }
     // 使用动态地址读取一次配置寄存器，确认地址分配成功，I3C SDR通信正常，传感器正常响应
-    status = BSP_I3C_ReadRegister(
-        P3T1755_DYNAMIC_ADDRESS,
-        P3T1755_CONFIG_REGISTER,
-        P3T1755_REGISTER_ADDRESS_SIZE,
-        &configRegister,
+    status = BSP_I3C_ReadRegister(P3T1755_DYNAMIC_ADDRESS, P3T1755_CONFIG_REGISTER,
+        P3T1755_REGISTER_ADDRESS_SIZE, &configRegister,
         sizeof(configRegister),//1字节
         BSP_I3C_BUS_I3C_SDR);
     if (status != kStatus_Success){
@@ -98,15 +94,14 @@ status_t BSP_P3T1755_Init(void){
  *     // temperature中保存当前温度
  * }
  */
-status_t BSP_P3T1755_ReadTemperatureC(float *temperatureC){
+status_t BSP_P3T1755_ReadTemperatureQ4(int16_t *temperatureQ4){
     status_t status;
     uint8_t data[2];
 
     uint16_t registerValue;
     uint16_t raw12;
-    int16_t signedRaw12;
 
-    if(temperatureC == NULL){
+    if (temperatureQ4 == NULL){
         return kStatus_InvalidArgument;
     }
     // 调用者必须先调用BSP_P3T1755_Init()初始化传感器
@@ -114,32 +109,48 @@ status_t BSP_P3T1755_ReadTemperatureC(float *temperatureC){
     if (!s_p3t1755Initialized){
         return kStatus_Fail;
     }
-    status = BSP_I3C_ReadRegister(
-        P3T1755_DYNAMIC_ADDRESS,
-        P3T1755_TEMPERATURE_REGISTER,
-        P3T1755_REGISTER_ADDRESS_SIZE,
-        data,
-        sizeof(data),
-        BSP_I3C_BUS_I3C_SDR
-    );
+
+    status = BSP_I3C_ReadRegister(P3T1755_DYNAMIC_ADDRESS, P3T1755_TEMPERATURE_REGISTER,
+        P3T1755_REGISTER_ADDRESS_SIZE, data, sizeof(data), BSP_I3C_BUS_I3C_SDR);
+
     if (status != kStatus_Success){
         return status;
     }
     // 拼接两个字节，data[0]是高字节，data[1]是低字节
-    registerValue = (uint16_t)((data[0] << 8U) | data[1]);//data[0]左移八位和data[1]按位或
+    registerValue = (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
     // 温度数据位于寄存器bit15-bit4,
     raw12 = registerValue >> 4U;
+
     // 负温度由12位补码表示， raw12的bit11是符号位；bit11=0表示正温度，bit11=1表示负温度
-    if ((raw12 & 0x0800U) != 0U){   //负数高4位补1，把12位扩展为16位补码
-        signedRaw12 = (int16_t)(raw12 | 0xF000U);
+    if ((raw12 & 0x0800U) != 0U){
+        *temperatureQ4 = (int16_t)(raw12 | 0xF000U);
     }
     else{
-        signedRaw12 = (int16_t)raw12;
+        *temperatureQ4 = (int16_t)raw12;
     }
-    *temperatureC = (float)signedRaw12 * P3T1755_TEMPERATURE_SET_C; // 每个单位对应0.0625摄氏度，原始值400：400*0.0625=25摄氏度
-    return kStatus_Success;
+
+    return kStatus_Success;    
 }
 
+status_t BSP_P3T1755_ReadTemperatureC(float *temperatureC){
+    status_t status;
+    int16_t temperatureQ4;
 
+    if (temperatureC == NULL){
+        return kStatus_InvalidArgument;
+    }
 
+    status = BSP_P3T1755_ReadTemperatureQ4(&temperatureQ4);
+
+    if (status != kStatus_Success){
+        return status;
+    }
+
+    /*
+     * 保留原浮点接口，避免破坏其他可能的调用者。
+     */
+    *temperatureC = (float)temperatureQ4 / 16.0f;
+
+    return kStatus_Success;
+}
 

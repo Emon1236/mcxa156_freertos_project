@@ -11,6 +11,7 @@
 #include "app.h"
 
 #include "app/app_ui_task.h"
+#include "app/app_temp_task.h"
 #include "app/app_buzzer_task.h"
 #include "FOC/FOC.h"
 #include "app/app_motor_task.h"
@@ -21,6 +22,14 @@ int main(void)
     status_t status;
 
     BOARD_InitHardware();
+    if (!APP_Temp_CreateTask())
+    {
+        PRINTF("Failed to create temperature task.\r\n");
+        for (;;)
+        {
+        }
+    }    
+
 
     PRINTF("System boot.\r\n");
 
@@ -51,6 +60,7 @@ int main(void)
         {
         }
     }
+  
 
     PRINTF("Starting scheduler, tick rate=%u Hz.\r\n",
            (unsigned int)configTICK_RATE_HZ);
