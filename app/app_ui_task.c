@@ -1,6 +1,7 @@
 #include "app/app_ui_task.h"
 #include "app/app_temp_task.h"
 #include "app/app_buzzer_task.h"
+#include "app/app_motor_task.h"
 
 #include "UI/menu.h"
 #include "UI/ui_display_port.h"
@@ -27,8 +28,23 @@
 
 static void app_ui_task(void *parameter);
 
-static bool app_ui_handle_button_events(uint32_t events)
-{
+/*
+将 UI 选择转换为电机模块的方向指令,普通刷新时仅在选择改变后下发
+*/
+static void app_ui_sync_motor_direction(bool force){
+    static menu_foc_direction_t lastDirection = MENU_FOC_DIRECTION_POSITIVE;
+    menu_foc_direction_t direction;
+
+    direction = Menu_GetFocDirection();
+    if ((!force) && (direction == lastDirection)){
+        return;
+    }
+    APP_Motor_SetDirection((direction == MENU_FOC_DIRECTION_NEGATIVE) ? DIRECTION_NEGATIVE : DIRECTION_POSITIVE);
+
+    lastDirection = direction;
+}
+
+static bool app_ui_handle_button_events(uint32_t events){
     menu_key_t key;
     menu_key_result_t result;
     //一轮扫描只处理一个按键。优先顺序：1、2、3、4。
@@ -49,6 +65,8 @@ static bool app_ui_handle_button_events(uint32_t events)
     }
     /* UI 负责菜单状态和交互结果。 */
     result = Menu_HandleKey(key);
+    /* 菜单完成状态更新后，由 App 层下发方向指令。 */
+    app_ui_sync_motor_direction(false);
     /* App 将反馈请求转换为实际声音请求。 */
     if (result.requestKeyFeedback){
         //非阻塞提交,提示音提交失败不影响菜单操作和重绘。
@@ -77,6 +95,7 @@ static void app_ui_task(void *parameter){
     BSP_Button_Init();
     //BSP_Buzzer_Init();
     Menu_Init();
+    app_ui_sync_motor_direction(true);
 
     //先立即绘制第一帧，避免启动后等待一个任务周期。
     Menu_Render();
