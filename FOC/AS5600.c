@@ -107,3 +107,30 @@ status_t AS5600_ReadAngleMilliDegrees(uint32_t *angleMilliDegrees){
 
     return kStatus_Success;
 }
+
+//增加一个磁场状态检查函数，读取可靠的磁编码数据的先决条件，校准前的必要检查
+/*
+MD/bit 5 0x20 检测到磁铁
+ML/bit 4 0x10 磁场过弱
+MH/bit 3 0x08 磁场过强
+*/
+status AS5600_CheckMagent(void){
+    uint8_t status_reg = 0U;
+
+    status_t ret = as5600_read_register(
+        AS5600_STATUS_REGISTER, &status_reg, sizeof(status_reg)
+    );
+    if (ret != kStatus_Success) {
+        return ret;
+    }
+    // MD=0，未检测到有效磁铁
+    if ((status_reg & 0x20U) == 0U) {
+        return kStatus_Fail;
+    }
+    // ML或MH置位，磁场强度异常
+    if ((status_reg & 0x18U) != 0U) {
+        return kStatus_Fail;
+    }
+
+    return kStatus_Success;    
+}

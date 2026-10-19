@@ -22,7 +22,7 @@ float dc_c = 0.0f;
 float voltage_limit = 1.0f;
 //在FOC_Init函数中初始化电源电压
 float voltage_power_supply = 0.0f;
-//电机极对数
+//电机极对数,机械角度=pp*电角度
 int pp = 7;
 
 float constrain(float amt, float low, float high){
@@ -50,13 +50,25 @@ void SetPwm(float phaseUa, float phaseUb, float phaseUc){
 }
 
 void SetPhaseVoltage(float Uq, float Ud, float angle_el){
-    (void)Ud;//后续闭环控制继续扩展
+    //(void)Ud;//后续闭环控制继续扩展
     //限制Uq在电机允许的最大电压范围内
-    Uq = constrain(Uq, -voltage_limit, voltage_limit);
+    // Uq = constrain(Uq, -voltage_limit, voltage_limit);
+    // Ud = constrain(Ud, -voltage_limit, voltage_limit);
+    /*
+    magnitude是d/q电压指令的矢量幅值，限制整个电压矢量，而不是分别将ud和uq限制到±1V后就认为安全，当两者同时非零时，合成幅值可能超限。
+    */
+    float magnitude = sqrtf(Ud * Ud + Uq * Uq);
+
+    if (magnitude > voltage_limit && magnitude > 0.0f) {
+        float scale = voltage_limit / magnitude;
+        Ud *= scale;
+        Uq *= scale;
+    }
     angle_el = normalizeAngle(angle_el);
+    
     //逆帕克变换
-    Ualpha = -Uq * sinf(angle_el);
-    Ubeta = Uq * cosf(angle_el);
+    Ualpha = Ud * cosf(angle_el) - Uq * sinf(angle_el);
+    Ubeta = Ud * sinf(angle_el) - Uq * cosf(angle_el);
     //逆克拉克变换
     //voltage_power_supply / 2用于把正负相电压，平移到PWM可以表示的0~母线电压范围。
      Ua = Ualpha + voltage_power_supply / 2.0f;
