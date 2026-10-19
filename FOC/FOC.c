@@ -65,10 +65,10 @@ void SetPhaseVoltage(float Uq, float Ud, float angle_el){
         Uq *= scale;
     }
     angle_el = normalizeAngle(angle_el);
-    
+
     //逆帕克变换
     Ualpha = Ud * cosf(angle_el) - Uq * sinf(angle_el);
-    Ubeta = Ud * sinf(angle_el) - Uq * cosf(angle_el);
+    Ubeta = Ud * sinf(angle_el) + Uq * cosf(angle_el);
     //逆克拉克变换
     //voltage_power_supply / 2用于把正负相电压，平移到PWM可以表示的0~母线电压范围。
      Ua = Ualpha + voltage_power_supply / 2.0f;

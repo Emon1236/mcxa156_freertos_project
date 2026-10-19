@@ -19,7 +19,7 @@ extern "C" {
 #define UI_MAIN_ICON_WIDTH       30U
 #define UI_MAIN_ICON_HEIGHT      30U
 #define UI_MAIN_ICON_BYTES       120U
-#define UI_MAIN_ICON_COUNT       4U
+#define UI_MAIN_ICON_COUNT       5U
 
 /*
  * 一级菜单图标数组。

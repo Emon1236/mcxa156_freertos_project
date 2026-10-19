@@ -53,6 +53,9 @@ typedef struct{
     // 数值变化回调
     ui_window_value_callback_t valueChanged;
 
+    bool choiceMode;
+    const char *choiceText[2];
+
     float y;
     float targetY;
 
@@ -60,6 +63,7 @@ typedef struct{
     float barTarget;
 }ui_window_state_t;
 static ui_window_state_t s_window;
+
 //窗口和进度条共用一个动画响应时间
 static uint16_t s_windowAnimationResponseMs = 90U;
 
@@ -161,6 +165,11 @@ bool UI_Window_OpenValue(const char *title, uint8_t initialValue, uint8_t minimu
 
     s_window.valueChanged = valueChanged;
 
+    /* 每次打开普通数值弹窗，都恢复普通模式。 */
+    s_window.choiceMode = false;
+    s_window.choiceText[0] = NULL;
+    s_window.choiceText[1] = NULL;
+
     s_window.visible = true;
     s_window.phase = UI_WINDOW_PHASE_OPENING;
 
@@ -178,6 +187,22 @@ bool UI_Window_OpenValue(const char *title, uint8_t initialValue, uint8_t minimu
 
     return true;
 }
+bool UI_Window_OpenChoice(const char *title, uint8_t initialValue,
+    const char *text0, const char *text1, ui_window_value_callback_t valueChanged){
+    //复用现有弹窗初始化和进出动画
+    if (!UI_Window_OpenValue(title, initialValue, 0U, 1U, 1U, valueChanged)){
+        return false;
+    }
+    s_window.choiceMode = true;
+    s_window.choiceText[0] = text0;
+    s_window.choiceText[1] = text1;
+
+    /* 选项弹窗不显示进度条。 */
+    s_window.bar = 0.0f;
+    s_window.barTarget = 0.0f;
+
+    return true;
+}
 
 bool UI_Window_IsVisible(void){
     return s_window.visible;
@@ -189,6 +214,25 @@ bool UI_Window_HandleInput(ui_window_input_t input){
     if ((!s_window.visible) || (s_window.phase != UI_WINDOW_PHASE_ACTIVE)){
         return false;
     }
+    if (s_window.choiceMode){
+        switch (input){
+            case UI_WINDOW_INPUT_CONFIRM:
+                s_window.value = (s_window.value == 0U) ? 1U : 0U;
+                ui_window_apply_value();
+                return true;
+            case UI_WINDOW_INPUT_CANCEL:
+                /*
+                 * 返回只关闭：
+                 * 不恢复 originalValue，不撤销方向。
+                 */
+                ui_window_begin_close();
+                return true;
+            case UI_WINDOW_INPUT_DECREASE:
+            case UI_WINDOW_INPUT_INCREASE:
+            default:
+                return false;
+        }
+    }    
     //
     newValue = s_window.value;
 
@@ -314,6 +358,31 @@ void UI_Window_Draw(u8g2_t *u8g2){
 
     u8g2_DrawRFrame(u8g2, UI_WINDOW_LEFT, (u8g2_uint_t)windowY, UI_WINDOW_WIDTH,
         UI_WINDOW_HEIGHT, UI_WINDOW_RADIUS);
+    // 新增弹窗二选一功能
+    if (s_window.choiceMode){
+        const char *choiceText;
+        uint16_t titleWidth;
+        uint16_t choiceWidth;
+        uint16_t totalWidth;
+        int16_t textX;
+        int16_t textY;
+
+        choiceText = s_window.choiceText[s_window.value];
+
+        titleWidth = u8g2_GetStrWidth(u8g2, s_window.title);
+        choiceWidth = u8g2_GetStrWidth(u8g2, choiceText);
+        totalWidth = (uint16_t)(titleWidth + 6U + choiceWidth);
+
+        textX = (int16_t)UI_WINDOW_LEFT + ((int16_t)UI_WINDOW_WIDTH - (int16_t)totalWidth) / 2;
+        textY = (int16_t)(windowY + 21);
+
+        u8g2_DrawStr(u8g2, (u8g2_uint_t)textX, (u8g2_uint_t)textY, s_window.title);
+
+        u8g2_DrawStr(u8g2, (u8g2_uint_t)(textX + (int16_t)titleWidth + 6), (u8g2_uint_t)textY, choiceText);
+        u8g2_SetDrawColor(u8g2, 1U);
+        return;
+    }    
+
     //绘制进度条外框
     u8g2_DrawRFrame(u8g2, UI_WINDOW_LEFT + 5U, (u8g2_uint_t)( windowY + 20),
         UI_WINDOW_BAR_WIDTH, UI_WINDOW_BAR_HEIGHT, UI_WINDOW_BAR_RADIUS);

@@ -58,6 +58,9 @@ typedef struct{
 static menu_transition_state_t s_transition;
 //当前提示页文字
 static const char *s_noticeMessage = "COMING SOON";
+//二选一弹窗的默认参数
+static menu_foc_direction_t s_focDirection = MENU_FOC_DIRECTION_POSITIVE;
+
 
 /* 静态函数声明区 */
 static void menu_action_font(void);
@@ -158,6 +161,9 @@ static const menu_page_t s_settingsPage;
 static const menu_page_t s_aboutPage;
 static const menu_page_t s_wavePage;
 
+/* FOC改变方向的弹窗菜单 */
+static void menu_action_foc_openloop(void);
+static void menu_apply_foc_direction(uint8_t value);
 
 /* Editor列表：保留参考工程的功能入口。 */
 static const menu_item_t s_editorItems[] =
@@ -444,6 +450,19 @@ static const menu_page_t s_settingsPage =
     .itemCount =
         (uint8_t)(sizeof(s_settingsItems) / sizeof(s_settingsItems[0]))
 };
+static const menu_item_t s_focItems[] = {
+    {
+        .label = "openloop",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_foc_openloop 
+    }
+};
+
+static const menu_page_t s_focPage = {
+    .items = s_focItems,
+    .itemCount = (uint8_t)(sizeof(s_focItems) / sizeof(s_focItems[0]))
+};
 
 /* 一级图形菜单，数量必须与g_uiMainIcons保持一致。 */
 static const menu_item_t s_rootItems[] =
@@ -464,6 +483,12 @@ static const menu_item_t s_rootItems[] =
         .label = "Wave",
         .getLabel = NULL,
         .childPage = &s_wavePage,
+        .action = NULL
+    },
+    {
+        .label = "FOC",
+        .getLabel = NULL,
+        .childPage = &s_focPage,
         .action = NULL
     },
     {
@@ -1188,7 +1213,7 @@ static void menu_render_tile(void){
     if (count > UI_MAIN_ICON_COUNT){
         /*
          * 防止菜单项数量大于图标数量时越界读取。
-         * 当前M_MAIN菜单项和图标数量均为4。
+         * 当前M_MAIN菜单项和图标数量均为5。
          */
         count = UI_MAIN_ICON_COUNT;
     }
@@ -1538,6 +1563,22 @@ static void menu_action_temperature(void)
         NULL);
 }
 
+
+static void menu_apply_foc_direction(uint8_t value){
+    s_focDirection = (value == 0U) ? MENU_FOC_DIRECTION_POSITIVE : MENU_FOC_DIRECTION_NEGATIVE;
+}
+
+
+static void menu_action_foc_openloop(void){
+    uint8_t initialValue;
+    initialValue = (s_focDirection == MENU_FOC_DIRECTION_NEGATIVE) ? 1U : 0U;
+
+    (void)UI_Window_OpenChoice( "direction", initialValue, "+", "-", menu_apply_foc_direction);
+}
+
+menu_foc_direction_t Menu_GetFocDirection(void){
+    return s_focDirection;
+}
 /* 所有尚未完成的一级菜单暂时调用这个函数。 */
 // static void menu_action_open_notice(void){
 //     s_currentView = MENU_VIEW_NOTICE;
@@ -1560,6 +1601,7 @@ void Menu_Init(void){
 
     s_menuDepth = 0U;
     s_currentView = MENU_VIEW_LIST;
+    s_focDirection = MENU_FOC_DIRECTION_POSITIVE;
 
     s_menuStack[0].page = &s_rootPage;
     s_menuStack[0].selectedIndex = 0U;

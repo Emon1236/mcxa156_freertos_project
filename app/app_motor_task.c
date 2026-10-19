@@ -4,6 +4,8 @@
 
 #include <stdbool.h>
 
+
+static int8_t s_motorDirection = DIRECTION_POSITIVE;
 //静态函数声明区
 static void foc_openloop_test_task(void *parameter);
 
@@ -28,10 +30,8 @@ static void foc_openloop_test_task(void *parameter){
 
     /*
      * velocityopenloop()中的target单位是rad/s。
-     *
      * 60RPM = 1转/秒 = 2π rad/s。
-     *
-     * 商家示例直接传入60，实际表示60rad/s，
+     * 示例直接传入60，实际表示60rad/s，
      * 大约等于573RPM，而不是60RPM。
      */
     targetMechanicalSpeed = 6.28318530718f;
@@ -39,17 +39,15 @@ static void foc_openloop_test_task(void *parameter){
     lastWakeTime = xTaskGetTickCount();
     printCounter = 0U;
 
-    for (;;)
-    {
-        Uq = velocityopenloop(targetMechanicalSpeed);
-
+    for (;;){
+        //这里修改方向
+        Uq = velocityopenloop(targetMechanicalSpeed * (float)APP_Motor_GetDirection());
         /*
-         * 每500次输出一次，避免PRINTF严重干扰1ms控制周期。
+         * 每500次输出一次，避免PRINTF严重干扰5ms控制周期。
          */
         printCounter++;
 
-        if (printCounter >= 500U)
-        {
+        if (printCounter >= 500U){
             printCounter = 0U;
 
             PRINTF(
@@ -65,4 +63,24 @@ static void foc_openloop_test_task(void *parameter){
 
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(5U));
     }
+}
+
+void APP_Motor_SetDirection(int8_t direction){
+    if((direction != DIRECTION_POSITIVE)&&(direction != DIRECTION_NEGATIVE)){
+        return;
+    }
+    //短临界区，临界区内只复制变量，不执行其他复杂任务
+    taskENTER_CRITICAL();
+    s_motorDirection = direction;
+    taskEXIT_CRITICAL();
+}
+
+int8_t APP_Motor_GetDirection(void){
+    int8_t direction;
+
+    taskENTER_CRITICAL();
+    direction = s_motorDirection;
+    taskEXIT_CRITICAL();
+
+    return direction;
 }

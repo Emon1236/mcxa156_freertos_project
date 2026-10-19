@@ -19,7 +19,7 @@
 
 int main(void)
 {
-    status_t status;
+    //status_t status;
 
     BOARD_InitHardware();
     if (!APP_Temp_CreateTask())
@@ -32,7 +32,7 @@ int main(void)
 
 
     PRINTF("System boot.\r\n");
-
+#if 0
     status = FOC_Init(12.6f);
 
     PRINTF("FOC_Init returned: %d\r\n", (int)status);
@@ -48,6 +48,7 @@ int main(void)
         PRINTF("Failed to create FOC task.\r\n");
         for (;;){}
     }
+#endif
     if (!APP_Buzzer_CreateTask()){
         PRINTF("Failed to create buzzer task.\r\n");
         for (;;){}

@@ -114,7 +114,7 @@ MD/bit 5 0x20 检测到磁铁
 ML/bit 4 0x10 磁场过弱
 MH/bit 3 0x08 磁场过强
 */
-status AS5600_CheckMagent(void){
+status_t AS5600_CheckMagent(void){
     uint8_t status_reg = 0U;
 
     status_t ret = as5600_read_register(
