@@ -1,5 +1,6 @@
 #include "app/app_motor_task.h"
 #include "FOC/FOC.h"
+#include "FOC/AS5600.h"
 #include "fsl_debug_console.h"
 
 #include <stdbool.h>
@@ -26,7 +27,49 @@ static void foc_openloop_test_task(void *parameter){
     float targetMechanicalSpeed;
     float Uq;
 
+    status_t status;
+    int detectedDirection = 0;
+    float zeroAngle = 0.0f;
+
     (void)parameter;
+    
+    PRINTF("Motor task started.\r\n");
+
+    status = AS5600_Init();
+    PRINTF("AS5600_Init returned: %d\r\n", (int)status);
+
+    if (status == kStatus_Success)
+    {
+        status = AS5600_CheckMagnet();
+        PRINTF("AS5600_CheckMagnet returned: %d\r\n", (int)status);
+    }
+
+    if (status == kStatus_Success)
+    {
+        PRINTF("Align start.\r\n");
+
+        status = FOC_AlignSensor(&detectedDirection, &zeroAngle);
+
+        PRINTF("Align returned: %d\r\n", (int)status);
+    }
+
+    if (status != kStatus_Success)
+    {
+        SetPhaseVoltage(0.0f, 0.0f, 0.0f);
+
+        PRINTF("Motor stopped: sensor init or alignment failed.\r\n");
+
+        /* 校准失败后不进入下面的开环运行。 */
+        for (;;)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000U));
+        }
+    }
+
+    PRINTF(
+        "Sensor DIR=%d, zero=%d mrad\r\n",
+        detectedDirection,
+        (int)(zeroAngle * 1000.0f));
 
     /*
      * velocityopenloop()中的target单位是rad/s。
