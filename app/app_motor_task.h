@@ -15,6 +15,7 @@ extern "C" {
 #define DIRECTION_NEGATIVE ((int8_t)-1)
 
 bool Foc_openloop_Createdtask(void);
+bool Foc_position_Createdtask(void);
 
 void APP_Motor_SetDirection(int8_t direction);
 int8_t APP_Motor_GetDirection(void);

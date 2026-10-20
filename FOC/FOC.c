@@ -9,8 +9,13 @@
 #include <math.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 //定义圆周率
 #define PI 3.14159265359f
+//定义位置闭环的参数
+#define POSITION_KP 2.6f
+//位置控制的Uq限制，单位V
+#define POSITION_UQ_LIMIT 0.5f 
 
 float Ua = 0.0f;
 float Ub = 0.0f;
@@ -24,14 +29,16 @@ float dc_b = 0.0f;
 float dc_c = 0.0f;
 
 //电机允许的最大Uq电压，施加给旋转电压矢量的最大赋值，直观感受就是控制电机扭矩的物理量
-float voltage_limit = 2.0f;
+float voltage_limit = 4.0f;
 //在FOC_Init函数中初始化电源电压
 float voltage_power_supply = 0.0f;
 //电机极对数,机械角度=pp*电角度
 int pp = 7;
 
-// 方向：+1 或 -1；0 表示尚未完成校准
-static int sensor_dir = 0;
+// 当前传感器方向和代码正方向一致
+static const int sensor_dir = 1;
+// 电角度0位是否校准
+static bool s_zeroAngleValid = false;
 // 电角度零点偏差，单位 rad
 static float zero_electric_angle = 0.0f;
 // 校准时施加的 Uq，必须不超过 voltage_limit
@@ -115,82 +122,109 @@ status_t FOC_Init(float power){
     return BSP_MotorPwm_Start();
 }
 
-status_t FOC_AlignSensor(int *dir, float *zero_angle)
+status_t FOC_AlignSensor(float *zero_angle)
 {
-    uint16_t raw_a, raw_b, raw_zero;
+    uint16_t raw_zero;
+    float mechanical_angle;
     status_t status;
 
+    s_zeroAngleValid = false;
+
     // 检查参数与初始化状态
-    if (dir == NULL || zero_angle == NULL ||
+    if (zero_angle == NULL ||
         voltage_power_supply <= 0.0f ||
         voltage_limit < ALIGN_VOLTAGE) {
         return kStatus_InvalidArgument;
     }
 
-    sensor_dir = 0;  // 标记为尚未校准
-
-    // ① 固定磁场到 270°，读取初始角度
-    SetPhaseVoltage(ALIGN_VOLTAGE, 0.0f, ALIGN_ANGLE);
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    status = AS5600_ReadRawAngle(&raw_a);
-    if (status != kStatus_Success) goto end;
-
-    // ② 磁场正向旋转 90° 电角度
-    SetPhaseVoltage(ALIGN_VOLTAGE, 0.0f,
-                    ALIGN_ANGLE + PI / 2.0f);
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    status = AS5600_ReadRawAngle(&raw_b);
-    if (status != kStatus_Success) goto end;
-
-    // ③ 计算编码器计数变化，并处理 0/4095 跨越
-    int delta = (int)raw_b - (int)raw_a;
-
-    if (delta > 2048)  delta -= 4096;
-    if (delta < -2048) delta += 4096;
-
-    // 转子变化太小，不能可靠判断方向
-    if (delta > -20 && delta < 20) {
-        status = kStatus_Fail;
-        goto end;
-    }
-
-    int detected_dir = (delta > 0) ? 1 : -1;
-
-    // ④ 回到 270°，重新对齐并读取零点
+    // 固定磁场到 270°，转子对齐到电角度零位
     SetPhaseVoltage(ALIGN_VOLTAGE, 0.0f, ALIGN_ANGLE);
     vTaskDelay(pdMS_TO_TICKS(500));
 
     status = AS5600_ReadRawAngle(&raw_zero);
-    if (status != kStatus_Success) goto end;
 
-    // 编码器原始值转换为机械弧度
-    float mechanical_angle =
-        (float)raw_zero * 2.0f * PI / 4096.0f;
+    if (status == kStatus_Success){
+        mechanical_angle = (float)raw_zero * 2.0f * PI /4096.0f;
+        zero_electric_angle = normalizeAngle((float)(sensor_dir * pp) * mechanical_angle);
 
-    // 计算电角度零点偏差
-    zero_electric_angle = normalizeAngle(
-        (float)(pp * detected_dir) * mechanical_angle
-    );
-
-    sensor_dir = detected_dir;
-
-    // 将结果返回给调用者，便于串口调试
-    *dir = sensor_dir;
-    *zero_angle = zero_electric_angle;
-
-end:
+        *zero_angle = zero_electric_angle;
+        s_zeroAngleValid = true;
+    }
     // 校准结束，恢复三相 50% 占空比
     SetPhaseVoltage(0.0f, 0.0f, 0.0f);
     return status;
 }
 
 status_t FOC_CalcElectricalAngle(uint16_t raw_angle, float *angle_el){
-    if (angle_el == NULL || sensor_dir == 0) {
+    if (angle_el == NULL || !s_zeroAngleValid) {
         return kStatus_Fail;
     }
     float mechanical_angle = (float)raw_angle * 2.0f * PI / 4096.0f;
-    *angle_el = normalizeAngle((float)(pp * sensor_dir) * mechanical_angle - zero_electric_angle);
+    *angle_el = normalizeAngle((float)(sensor_dir * pp) * mechanical_angle - zero_electric_angle);
     return kStatus_Success;
 }
+
+//增加 initial_angle 因为位置闭环启动时，最自然的初始目标就是点击当前的位置。
+status_t FOC_PositionInit(float *initial_angle, float *zero_angle){
+    status_t status;
+    uint16_t raw_angle;
+
+    //初始化AS5600
+    status = AS5600_Init();
+    if(status != kStatus_Success) return status;
+    //检查磁铁状态
+    status = AS5600_CheckMagnet();
+    if(status != kStatus_Success) return status;
+    // 执行上电电角度校准
+    status = FOC_AlignSensor(zero_angle);
+    if(status != kStatus_Success) return status;
+
+    //校准结束后，获取实际机械位置
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    status = AS5600_ReadRawAngle(&raw_angle);
+    if(status != kStatus_Success) return status;
+
+    *initial_angle = (float)raw_angle * 2.0f * PI /4096.0f;
+    //*zero_angle = zero_electric_angle;
+    return kStatus_Success;
+}
+
+status_t FOC_PositionControl(float target_angle){
+    uint16_t raw_angle;
+
+    float mechanical_angle;
+    float electrical_angle;
+    float error;
+    float Uq;
+
+    //读取当前机械角度
+    status_t status = AS5600_ReadRawAngle(&raw_angle);
+
+    if(status != kStatus_Success){
+        SetPhaseVoltage(0.0f, 0.0f, 0.0f);
+        return status;
+    }
+    mechanical_angle = (float)raw_angle * 2.0f * PI / 4096.0f;
+
+    error = normalizeAngle(target_angle - mechanical_angle);
+    // 将误差限制在 [-PI, PI]，走最短路径
+    if (error > PI) {
+        error -= 2.0f * PI;
+    }
+    // 位置P控制，计算Uq
+    Uq = POSITION_KP * error;
+    Uq = constrain(Uq, -POSITION_UQ_LIMIT, POSITION_UQ_LIMIT);
+    // 计算当前转子的电角度
+    status = FOC_CalcElectricalAngle(raw_angle, &electrical_angle);
+
+    if(status != kStatus_Success){
+        SetPhaseVoltage(0.0f, 0.0f, 0.0f);
+        return status;
+    }
+    //根据位置误差输出三相电压
+    SetPhaseVoltage(Uq, 0.0f, electrical_angle);
+
+    return kStatus_Success;
+}
+

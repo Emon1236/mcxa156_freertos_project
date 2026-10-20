@@ -35,10 +35,14 @@ status_t FOC_Init(float power);
 //开环速度控制
 float velocityopenloop(float target);
 // 自动检测传感器方向并校准电角度零点
-status_t FOC_AlignSensor(int *dir, float *zero_angle);
+status_t FOC_AlignSensor(float *zero_angle);
 // 根据 AS5600 原始计数计算当前电角度
 status_t FOC_CalcElectricalAngle(uint16_t raw_angle, float *angle_el);
 
+/* 位置控制初始化：传感器初始化+电角度校准 */
+status_t FOC_PositionInit(float *initial_angle, float *zero_angle);
+/* 单圈位置P控制，目标角度单位为rad */
+status_t FOC_PositionControl(float target_angle);
 #ifdef __cplusplus
 }
 #endif

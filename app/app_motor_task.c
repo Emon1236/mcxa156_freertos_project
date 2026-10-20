@@ -9,6 +9,8 @@
 static int8_t s_motorDirection = DIRECTION_POSITIVE;
 //静态函数声明区
 static void foc_openloop_test_task(void *parameter);
+static void foc_position_test_task(void *parameter);
+
 
 bool Foc_openloop_Createdtask(void){
     BaseType_t result;
@@ -21,6 +23,37 @@ bool Foc_openloop_Createdtask(void){
     return (result == pdPASS);
 }
 
+bool Foc_position_Createdtask(void){
+    BaseType_t result;
+    result = xTaskCreate(foc_position_test_task,
+                         "FOC Position",
+                         configMINIMAL_STACK_SIZE + 256U,
+                         NULL,
+                         tskIDLE_PRIORITY + 3U,
+                         NULL);
+    return (result == pdPASS);
+}
+
+void APP_Motor_SetDirection(int8_t direction){
+    if((direction != DIRECTION_POSITIVE)&&(direction != DIRECTION_NEGATIVE)){
+        return;
+    }
+    //短临界区，临界区内只复制变量，不执行其他复杂任务
+    taskENTER_CRITICAL();
+    s_motorDirection = direction;
+    taskEXIT_CRITICAL();
+}
+
+int8_t APP_Motor_GetDirection(void){
+    int8_t direction;
+
+    taskENTER_CRITICAL();
+    direction = s_motorDirection;
+    taskEXIT_CRITICAL();
+
+    return direction;
+}
+
 static void foc_openloop_test_task(void *parameter){
     TickType_t lastWakeTime;
     uint32_t printCounter;
@@ -28,7 +61,6 @@ static void foc_openloop_test_task(void *parameter){
     float Uq;
 
     status_t status;
-    int detectedDirection = 0;
     float zeroAngle = 0.0f;
 
     (void)parameter;
@@ -48,7 +80,7 @@ static void foc_openloop_test_task(void *parameter){
     {
         PRINTF("Align start.\r\n");
 
-        status = FOC_AlignSensor(&detectedDirection, &zeroAngle);
+        status = FOC_AlignSensor(&zeroAngle);
 
         PRINTF("Align returned: %d\r\n", (int)status);
     }
@@ -66,10 +98,7 @@ static void foc_openloop_test_task(void *parameter){
         }
     }
 
-    PRINTF(
-        "Sensor DIR=%d, zero=%d mrad\r\n",
-        detectedDirection,
-        (int)(zeroAngle * 1000.0f));
+    PRINTF("zero_angle=%d mrad\r\n",(int)(zeroAngle * 1000.0f));
 
     /*
      * velocityopenloop()中的target单位是rad/s。
@@ -108,22 +137,45 @@ static void foc_openloop_test_task(void *parameter){
     }
 }
 
-void APP_Motor_SetDirection(int8_t direction){
-    if((direction != DIRECTION_POSITIVE)&&(direction != DIRECTION_NEGATIVE)){
-        return;
+static void foc_position_test_task(void *parameter){
+    TickType_t lastWakeTime;
+    status_t status;
+
+    float initialAngle;
+    float targetAngle;
+    float zeroAngle;
+    
+    (void)parameter;
+    PRINTF("Position task started.\r\n");
+
+    status = FOC_PositionInit(&initialAngle, &zeroAngle);
+
+    if (status != kStatus_Success){
+        SetPhaseVoltage(0.0f, 0.0f, 0.0f);
+        PRINTF("Position init failed: %d\r\n", (int)status);
+        for (;;){
+            vTaskDelay(pdMS_TO_TICKS(1000U));
+        }
     }
-    //短临界区，临界区内只复制变量，不执行其他复杂任务
-    taskENTER_CRITICAL();
-    s_motorDirection = direction;
-    taskEXIT_CRITICAL();
-}
-
-int8_t APP_Motor_GetDirection(void){
-    int8_t direction;
-
-    taskENTER_CRITICAL();
-    direction = s_motorDirection;
-    taskEXIT_CRITICAL();
-
-    return direction;
+    /* 第一次测试：保持初始化完成时的位置。 */
+    //targetAngle = initialAngle;
+    /* 第二次测试：相对当前位置转动30° */
+    targetAngle = normalizeAngle(initialAngle + 0.5235987756f);
+    
+    PRINTF(
+        "Position ready: initial=%d mrad, target=%d mrad, zero=%d mrad\r\n",
+        (int)(initialAngle * 1000.0f),(int)(targetAngle * 1000.0f),(int)(zeroAngle * 1000.0f));
+    
+    lastWakeTime = xTaskGetTickCount();
+    for (;;){
+        status = FOC_PositionControl(targetAngle);
+        if (status != kStatus_Success){
+            SetPhaseVoltage(0.0f, 0.0f, 0.0f);
+            PRINTF("Position control failed: %d\r\n", (int)status);
+            for (;;){
+                vTaskDelay(pdMS_TO_TICKS(1000U));
+            }
+        }
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(5U));
+    }
 }

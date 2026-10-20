@@ -47,8 +47,8 @@ int main(void)
         {
         }
     }
-    
-    if (!Foc_openloop_Createdtask())
+
+    if (!Foc_position_Createdtask())
     {
         PRINTF("Failed to create FOC task.\r\n");
 
