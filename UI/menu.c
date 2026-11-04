@@ -15,6 +15,7 @@
 #include "UI/ui_platform.h"
 #include "UI/ui_sleep.h"
 #include "UI/ui_waveform.h"
+#include "UI/ui_encoder_waveform.h"
 
 // #include "bsp/bsp_4oleds.h"
 //#include "bsp/bsp_buzzer.h"
@@ -33,6 +34,7 @@ static menu_tile_animation_t s_tileAnimation;
 static menu_frame_t s_menuStack[MENU_MAX_DEPTH];//菜单栈。最大4层，0是一级菜单，1是SETTINGS。
 static uint8_t s_menuDepth; //当前处于第几层菜单
 static menu_view_t s_currentView;   //当前显示菜单列表还是提示页面
+static bool s_pairWasActive;
 //页面淡出完成后需要执行的操作
 typedef enum{
     MENU_TRANSITION_NONE = 0U,
@@ -40,6 +42,7 @@ typedef enum{
     MENU_TRANSITION_BACK,//从当前子菜单返回上一级
     MENU_TRANSITION_OPEN_NOTICE,//打开提示页面
     MENU_TRANSITION_OPEN_WAVEFORM,//打开波形页面
+    MENU_TRANSITION_OPEN_ENCODER,//编码器页面
     MENU_TRANSITION_OPEN_SLEEP,//打开睡眠页面
     //从提示页或波形页回到原菜单，它不会修改s_menuDepth
     MENU_TRANSITION_RETURN_TO_MENU
@@ -155,6 +158,7 @@ static void menu_show_notice(const char *message);
 //static bool menu_read_voltage(uint16_t *millivolts);
 
 static void menu_action_temperature(void);
+static void menu_action_encoder(void);
 
 static const menu_page_t s_editorPage;
 static const menu_page_t s_settingsPage;
@@ -431,6 +435,12 @@ static const menu_item_t s_waveItems[] ={
         .action = menu_action_temperature
     },
     {
+        .label = "ENCODER SENSOR",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_encoder
+    },
+    {
         .label = "VOLT",
         .getLabel = NULL,
         .childPage = NULL,
@@ -439,9 +449,7 @@ static const menu_item_t s_waveItems[] ={
 };
 static const menu_page_t s_wavePage = {
     .items = s_waveItems,
-    .itemCount =
-        (uint8_t)(sizeof(s_waveItems) /
-                  sizeof(s_waveItems[0]))
+    .itemCount = (uint8_t)(sizeof(s_waveItems) / sizeof(s_waveItems[0]))
 };
 
 static const menu_page_t s_settingsPage =
@@ -614,6 +622,11 @@ static void menu_transition_commit(void){
             s_currentView = MENU_VIEW_WAVEFORM;
             // Enter只开始显示和推出动画
             UI_Waveform_Enter();
+            break;
+
+        case MENU_TRANSITION_OPEN_ENCODER:
+            s_currentView = MENU_VIEW_ENCODER_WAVE;
+            UI_EncoderWave_Enter();
             break;
 
         case MENU_TRANSITION_OPEN_SLEEP:
@@ -1562,7 +1575,11 @@ static void menu_action_temperature(void)
         MENU_TRANSITION_OPEN_WAVEFORM,
         NULL);
 }
-
+static void menu_action_encoder(void){
+    menu_transition_begin(
+        MENU_TRANSITION_OPEN_ENCODER,
+        NULL);
+}
 
 static void menu_apply_foc_direction(uint8_t value){
     s_focDirection = (value == 0U) ? MENU_FOC_DIRECTION_POSITIVE : MENU_FOC_DIRECTION_NEGATIVE;
@@ -1590,7 +1607,9 @@ void Menu_Init(void){
     menu_apply_display_brightness(APP_Settings_Get()->displayBrightness);
     UI_Window_SetAnimationResponseMs(APP_Settings_Get()->windowAnimationMs);
     UI_Waveform_Init();
+    UI_EncoderWave_Init();
     UI_Effects_FadeReset();
+    s_pairWasActive = false;
 
     s_transition.active = false;
     s_transition.finalFrameShown = false;
@@ -1639,7 +1658,27 @@ static bool menu_handle_key_action(menu_key_t key)
         }
         return false;
     }
-    //波形页面只处理返回键
+    if (s_currentView == MENU_VIEW_ENCODER_WAVE){
+        switch (key){
+            case MENU_KEY_UP:
+                UI_EncoderWave_Scale(true);
+                return true;
+
+            case MENU_KEY_DOWN:
+                UI_EncoderWave_Scale(false);
+                return true;
+
+            case MENU_KEY_BACK:
+                UI_EncoderWave_Leave();
+                menu_transition_begin(MENU_TRANSITION_RETURN_TO_MENU, NULL);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    //温度波形页面的按键处理
     if (s_currentView == MENU_VIEW_WAVEFORM){
         switch (key){
             case MENU_KEY_UP:
@@ -1760,6 +1799,10 @@ bool Menu_Update(uint32_t deltaTimeMs){
     {
         return UI_Waveform_Update(deltaTimeMs);
     }
+    if (s_currentView == MENU_VIEW_ENCODER_WAVE)
+    {
+        return UI_EncoderWave_Update(deltaTimeMs);
+    }
 
     if (s_currentView == MENU_VIEW_SLEEP)
     {
@@ -1784,6 +1827,30 @@ bool Menu_Update(uint32_t deltaTimeMs){
     return menu_list_update(deltaTimeMs);    
 }
 
+bool Menu_PreparePairFrame(const uint8_t **frameBuffer){
+    static const uint8_t emptyFrame[UI_WAVEFORM_FRAME_BYTES] = {0U};
+
+    if (frameBuffer == NULL){
+        return false;
+    }
+    *frameBuffer = NULL;
+
+    if (s_currentView == MENU_VIEW_ENCODER_WAVE){
+        s_pairWasActive = true;
+        return UI_EncoderWave_PrepareFrame(frameBuffer);
+    }
+    if (s_currentView == MENU_VIEW_WAVEFORM){
+        s_pairWasActive = true;
+        return UI_Waveform_PerpareFrame(frameBuffer);
+    }
+    if (s_pairWasActive){
+        s_pairWasActive = false;
+        *frameBuffer = emptyFrame;
+        return true;
+    }
+    return false;
+}
+
 void Menu_Render(void){
     u8g2_t *u8g2 = UI_Display_GetContext();
     const app_settings_t *settings = APP_Settings_Get();
@@ -1796,6 +1863,10 @@ void Menu_Render(void){
 
         case MENU_VIEW_WAVEFORM:
             UI_Waveform_DrawControl(u8g2);
+            break;
+
+        case MENU_VIEW_ENCODER_WAVE:
+            UI_EncoderWave_DrawControl(u8g2);
             break;
 
         case MENU_VIEW_SLEEP:

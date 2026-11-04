@@ -70,6 +70,9 @@ bool Menu_Update(uint32_t deltaTimeMs); //新增，更新一帧动画，返回tr
 
 void Menu_Render(void); //绘制菜单；新增将当前动画帧绘制到OLED帧缓冲，不再内部发送SPI数据
 
+/* 取得当前波形页面的2、3号屏帧；离开波形页面时返回一次清屏帧。 */
+bool Menu_PreparePairFrame(const uint8_t **frameBuffer);
+
 menu_foc_direction_t Menu_GetFocDirection(void);
 #ifdef __cplusplus
 }

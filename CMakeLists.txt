@@ -82,7 +82,15 @@ mcux_add_source(
             app/app_motor_task.c
             app/app_motor_task.h  
             app/app_buzzer_task.c
-            app/app_buzzer_task.h     
+            app/app_buzzer_task.h
+            FOC/low_filter.cpp
+            FOC/low_filter.h
+            FOC/pid.cpp
+            FOC/pid.h
+            app/app_encoder_task.h
+            app/app_encoder_task.cpp
+            UI/ui_encoder_waveform.h
+            UI/ui_encoder_waveform.c
 )
 
 mcux_add_include(

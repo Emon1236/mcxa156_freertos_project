@@ -2,10 +2,12 @@
 #include "app/app_temp_task.h"
 #include "app/app_buzzer_task.h"
 #include "app/app_motor_task.h"
+#include "app/app_encoder_task.h"
 
 #include "UI/menu.h"
 #include "UI/ui_display_port.h"
 #include "UI/ui_waveform.h"
+#include "UI/ui_encoder_waveform.h"
 
 #include "bsp/bsp_button.h"
 #include "bsp/bsp_buzzer.h"
@@ -86,6 +88,7 @@ static void app_ui_task(void *parameter){
     TickType_t lastWakeTime;
     TickType_t previousUpdateTick;
     bool pair23Ready;
+    const uint8_t *pendingPairFrame = NULL;
 
     (void)parameter;
 
@@ -95,6 +98,7 @@ static void app_ui_task(void *parameter){
     BSP_Button_Init();
     //BSP_Buzzer_Init();
     Menu_Init();
+    UI_EncoderWave_SetFilterTimeMs(APP_ENCODER_TF_MS);
     app_ui_sync_motor_direction(true);
 
     //先立即绘制第一帧，避免启动后等待一个任务周期。
@@ -112,7 +116,7 @@ static void app_ui_task(void *parameter){
         bool needRedraw;
 
         needRedraw = false;
-        //将温度任务累积的消息全部取出
+        //独立消费温度和编码器队列，采集频率互不影响。
         //没有其他任务修改波形，因此ui_waveform内部不需要互斥锁
         for (;;){
             app_temp_sample_t temperatureSample;
@@ -122,12 +126,17 @@ static void app_ui_task(void *parameter){
             }
 
             if (UI_Waveform_AddTemperatureSample(temperatureSample.temperatureQ4, temperatureSample.valid)){
-                /*
-                * 当前正显示温度控制页面时，
-                * 温度变化需要刷新1号屏。
-                */
                 needRedraw = true;
             }
+        }
+        for (;;){
+            app_encoder_sample_t sample;
+
+            if (!APP_Encoder_TryReceive(&sample)){
+                break;
+            }
+
+            UI_EncoderWave_AddSample(sample.rawRpm, sample.filteredRpm, sample.sequence, sample.valid);
         }
         /*
          * 每20ms调用一次。
@@ -158,19 +167,19 @@ static void app_ui_task(void *parameter){
             const uint8_t *pairFrame = NULL;
             // Menu_Render只在RAM中的U8G2帧缓冲里绘图，此时不占用SPI
             Menu_Render();
-            //UI_Display_Present();
-            //2，3屏幕刷新和1号相互独立
-            if (pair23Ready && UI_Waveform_PerpareFrame(&pairFrame)){
-                if (!BSP_2OLEDS_Present(pairFrame))
-                {
-                    /*
-                    * 调试时在此处设置断点。
-                    * 如果进入这里，需要继续检查SPI Busy或传输错误。
-                    */
-                }
+            if (pair23Ready && Menu_PreparePairFrame(&pairFrame)){
+                pendingPairFrame = pairFrame;
             }
+        }
+        //失败的波形帧或清屏帧下一轮重试；新页面的帧优先替换旧帧。
+        if (pair23Ready && pendingPairFrame != NULL){
+            if (BSP_2OLEDS_Present(pendingPairFrame)){
+                pendingPairFrame = NULL;
+            }
+        }
+        if (needRedraw){
             //1号屏最后刷新。
-        UI_Display_Present();
+            UI_Display_Present();
         }
 
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(APP_UI_TASK_PERIOD_MS));

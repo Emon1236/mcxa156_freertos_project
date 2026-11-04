@@ -73,6 +73,7 @@ typedef enum
     MENU_VIEW_LIST = 0U,    //第0层为图形菜单，其余层为列表菜单
     MENU_VIEW_NOTICE,       //通知视图
     MENU_VIEW_WAVEFORM,       //波形视图
+    MENU_VIEW_ENCODER_WAVE, //编码器波形
     MENU_VIEW_SLEEP           //睡眠视图
 } menu_view_t;
 
