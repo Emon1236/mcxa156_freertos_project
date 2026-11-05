@@ -15,6 +15,7 @@
 #include "app/app_buzzer_task.h"
 #include "bsp/bsp_i3c.h"
 #include "app/app_encoder_task.h"
+#include "app/app_position_task.h"
 
 
 int main(void)
@@ -30,6 +31,10 @@ int main(void)
     if (!APP_Encoder_CreateTask())
     {
         PRINTF("Failed to create encoder task.\r\n");
+        for (;;) {}
+    }
+    if (!APP_Position_CreateTask()){
+        PRINTF("Failed to create position task.\r\n");
         for (;;) {}
     }
     if (!APP_Temp_CreateTask())

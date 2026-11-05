@@ -34,8 +34,9 @@ status_t FOC_Init(float power);
 
 //开环速度控制
 float velocityopenloop(float target);
-// 自动检测传感器方向并校准电角度零点
+// 按当前传感器方向校准电角度零点
 status_t FOC_AlignSensor(float *zero_angle);
+int8_t FOC_GetSensorDirection(void);
 // 根据 AS5600 原始计数计算当前电角度
 status_t FOC_CalcElectricalAngle(uint16_t raw_angle, float *angle_el);
 

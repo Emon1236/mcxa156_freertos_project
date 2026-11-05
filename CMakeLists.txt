@@ -15,6 +15,12 @@ include(${SdkRootDirPath}/CMakeLists.txt)
 
 include(${board}/board_files.cmake)
 
+option(APP_POSITION_TUNE "Enable bounded position tuning capture" OFF)
+if(APP_POSITION_TUNE)
+    mcux_add_configuration(CC "-DAPP_POSITION_TUNE=1" CX "-DAPP_POSITION_TUNE=1")
+    mcux_add_source(SOURCES tools/position_tune/tune.cpp tools/position_tune/tune.h)
+endif()
+
 # 收集u8g2核心C源码
 # CONFIGURE_DEPENDS表示当u8g2/csrc目录中的源文件发生变化时，CMake会重新检查文件列表。
 file(GLOB U8G2_SOURCES CONFIGURE_DEPENDS
@@ -89,6 +95,8 @@ mcux_add_source(
             FOC/pid.h
             app/app_encoder_task.h
             app/app_encoder_task.cpp
+            app/app_position_task.h
+            app/app_position_task.cpp
             UI/ui_encoder_waveform.h
             UI/ui_encoder_waveform.c
 )

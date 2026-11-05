@@ -28,7 +28,7 @@ float LowPassFilter::operator()(float x){
     // 使用无符号差值，允许正常跨越 tick 计数回绕。
     const TickType_t elapsed_ticks = (TickType_t)(timestamp - timestamp_prev);
 
-    // 同一个 tick 内重复调用，没有可测得的新时间间隔。可能存在5ms内重复调用函数的情况
+    // 同一个 tick 内重复调用，没有可测得的新时间间隔。
     if (elapsed_ticks == 0){
         return y_prev;
     }

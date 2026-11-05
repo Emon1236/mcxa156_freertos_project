@@ -1,4 +1,5 @@
 #include "app/app_motor_task.h"
+#include "app/app_position_task.h"
 #include "FOC/FOC.h"
 #include "FOC/AS5600.h"
 #include "fsl_debug_console.h"
@@ -9,7 +10,6 @@
 static int8_t s_motorDirection = DIRECTION_POSITIVE;
 //静态函数声明区
 static void foc_openloop_test_task(void *parameter);
-static void foc_position_test_task(void *parameter);
 
 
 bool Foc_openloop_Createdtask(void){
@@ -24,14 +24,7 @@ bool Foc_openloop_Createdtask(void){
 }
 
 bool Foc_position_Createdtask(void){
-    BaseType_t result;
-    result = xTaskCreate(foc_position_test_task,
-                         "FOC Position",
-                         configMINIMAL_STACK_SIZE + 256U,
-                         NULL,
-                         tskIDLE_PRIORITY + 3U,
-                         NULL);
-    return (result == pdPASS);
+    return APP_Position_CreateTask();
 }
 
 void APP_Motor_SetDirection(int8_t direction){
@@ -133,49 +126,6 @@ static void foc_openloop_test_task(void *parameter){
                 (unsigned int)(dc_c * 1000.0f));
         }
 
-        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(5U));
-    }
-}
-
-static void foc_position_test_task(void *parameter){
-    TickType_t lastWakeTime;
-    status_t status;
-
-    float initialAngle;
-    float targetAngle;
-    float zeroAngle;
-    
-    (void)parameter;
-    PRINTF("Position task started.\r\n");
-
-    status = FOC_PositionInit(&initialAngle, &zeroAngle);
-
-    if (status != kStatus_Success){
-        SetPhaseVoltage(0.0f, 0.0f, 0.0f);
-        PRINTF("Position init failed: %d\r\n", (int)status);
-        for (;;){
-            vTaskDelay(pdMS_TO_TICKS(1000U));
-        }
-    }
-    /* 第一次测试：保持初始化完成时的位置。 */
-    //targetAngle = initialAngle;
-    /* 第二次测试：相对当前位置转动30° */
-    targetAngle = normalizeAngle(initialAngle + 0.5235987756f);
-    
-    PRINTF(
-        "Position ready: initial=%d mrad, target=%d mrad, zero=%d mrad\r\n",
-        (int)(initialAngle * 1000.0f),(int)(targetAngle * 1000.0f),(int)(zeroAngle * 1000.0f));
-    
-    lastWakeTime = xTaskGetTickCount();
-    for (;;){
-        status = FOC_PositionControl(targetAngle);
-        if (status != kStatus_Success){
-            SetPhaseVoltage(0.0f, 0.0f, 0.0f);
-            PRINTF("Position control failed: %d\r\n", (int)status);
-            for (;;){
-                vTaskDelay(pdMS_TO_TICKS(1000U));
-            }
-        }
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(5U));
     }
 }

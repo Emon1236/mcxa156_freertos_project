@@ -9,6 +9,8 @@
 #define ENCODER_QUEUE_LENGTH 32U
 
 static QueueHandle_t s_encoderQueue;
+static app_encoder_sample_t s_latestSample;
+static bool s_hasLatestSample = false;
 
 static void encoder_task(void *parameter);
 
@@ -16,9 +18,20 @@ static void encoder_task(void *parameter);
 static void encoder_send_sample(const app_encoder_sample_t *sample){
     app_encoder_sample_t discarded;
 
-    if (xQueueSend(s_encoderQueue, sample, 0U) != pdPASS){
+    taskENTER_CRITICAL();
+    s_latestSample = *sample;
+    s_hasLatestSample = true;
+    taskEXIT_CRITICAL();
+
+    if (sample->sequence % APP_ENCODER_UI_DIV != 0U){
+        return;
+    }
+    app_encoder_sample_t displaySample = *sample;
+    displaySample.sequence /= APP_ENCODER_UI_DIV;
+
+    if (xQueueSend(s_encoderQueue, &displaySample, 0U) != pdPASS){
         (void)xQueueReceive(s_encoderQueue, &discarded, 0U);
-        (void)xQueueSend(s_encoderQueue, sample, 0U);
+        (void)xQueueSend(s_encoderQueue, &displaySample, 0U);
     }
 }
 
@@ -45,6 +58,21 @@ bool APP_Encoder_TryReceive(app_encoder_sample_t *sample){
     }
 
     return xQueueReceive(s_encoderQueue, sample, 0U) == pdPASS;
+}
+
+bool APP_Encoder_GetLatest(app_encoder_sample_t *sample){
+    if (sample == NULL){
+        return false;
+    }
+
+    taskENTER_CRITICAL();
+    bool available = s_hasLatestSample;
+    if (available){
+        *sample = s_latestSample;
+    }
+    taskEXIT_CRITICAL();
+
+    return available;
 }
 
 static void encoder_task(void *parameter){
@@ -80,8 +108,15 @@ static void encoder_task(void *parameter){
         status_t status = AS5600_ReadRawAngle(&raw);
         TickType_t now = xTaskGetTickCount();
 
+        //追赶周期时可能在同一tick再次读取，此时保留上一份有效测速数据。
+        if (status == kStatus_Success && hasPrevious && now == previousTick){
+            vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(APP_ENCODER_PERIOD_MS));
+            continue;
+        }
+
         sample.sequence = sequence++;
         sample.timestampTicks = (uint32_t)now;
+        sample.rawAngle = raw;
 
         if (status != kStatus_Success){
             hasPrevious = false;

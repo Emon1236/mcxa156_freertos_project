@@ -13,9 +13,9 @@
 //定义圆周率
 #define PI 3.14159265359f
 //定义位置闭环的参数
-#define POSITION_KP 2.6f
-//位置控制的Uq限制，单位V
-#define POSITION_UQ_LIMIT 0.5f 
+// #define POSITION_KP 2.6f
+// //位置控制的Uq限制，单位V
+// #define POSITION_UQ_LIMIT 1.0f 
 
 float Ua = 0.0f;
 float Ub = 0.0f;
@@ -29,10 +29,10 @@ float dc_b = 0.0f;
 float dc_c = 0.0f;
 
 //电机允许的最大Uq电压，施加给旋转电压矢量的最大赋值，直观感受就是控制电机扭矩的物理量
-float voltage_limit = 4.0f;
+float voltage_limit = 5.0f;
 //在FOC_Init函数中初始化电源电压
 float voltage_power_supply = 0.0f;
-//电机极对数,机械角度=pp*电角度
+//电机极对数，电角度=pp*机械角度（再考虑传感器方向和零点）。
 int pp = 7;
 
 // 当前传感器方向和代码正方向一致
@@ -153,6 +153,10 @@ status_t FOC_AlignSensor(float *zero_angle)
     // 校准结束，恢复三相 50% 占空比
     SetPhaseVoltage(0.0f, 0.0f, 0.0f);
     return status;
+}
+
+int8_t FOC_GetSensorDirection(void){
+    return (int8_t)sensor_dir;
 }
 
 status_t FOC_CalcElectricalAngle(uint16_t raw_angle, float *angle_el){
