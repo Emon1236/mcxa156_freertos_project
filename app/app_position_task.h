@@ -1,7 +1,7 @@
 #ifndef APP_POSITION_TASK_H
 #define APP_POSITION_TASK_H
 
-#include <stdbool.h>
+#include "FOC/FOC.h"
 
 //正常固件校准后自动旋转；调参构建保持手动启动。
 #ifndef APP_POSITION_AUTO_RUN
@@ -14,7 +14,6 @@
 #define APP_POSITION_KD          0.06f
 #define APP_POSITION_UQ_LIMIT    1.0f
 #define APP_POSITION_RAMP        0.0f
-#define APP_POSITION_BUS_VOLTAGE 12.6f
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,12 +27,7 @@ typedef enum{
     APP_POSITION_FAULT
 } app_position_state_t;
 
-typedef struct{
-    float kp;            //V/rad
-    float kd;            //V/(rad/s)，I固定为0
-    float voltageLimit;  //Uq限幅，单位V
-    float outputRamp;    //输出变化率，单位V/s，0表示不限制
-} app_position_params_t;
+typedef foc_position_params_t app_position_params_t;
 
 bool APP_Position_CreateTask(void);
 bool APP_Position_SetParams(const app_position_params_t *params);

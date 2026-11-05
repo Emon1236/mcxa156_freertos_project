@@ -14,9 +14,8 @@ extern "C" {
 #define DIRECTION_POSITIVE ((int8_t)1)
 #define DIRECTION_NEGATIVE ((int8_t)-1)
 
+/* 与APP_Position_CreateTask二选一，同一组PWM只启动一个控制任务。 */
 bool Foc_openloop_Createdtask(void);
-/* 兼容入口：创建默认只校准的位置任务，启动时与新入口二选一。 */
-bool Foc_position_Createdtask(void);
 
 void APP_Motor_SetDirection(int8_t direction);
 int8_t APP_Motor_GetDirection(void);

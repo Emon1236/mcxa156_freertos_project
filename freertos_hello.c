@@ -25,8 +25,7 @@ int main(void)
     status = BSP_I3C_Init();
 
     if (status != kStatus_Success){
-        PRINTF("I3C init failed: %d\r\n", (int)status);
-        for (;;){}
+        PRINTF("I3C init failed: %d.\r\n", (int)status);
     }
     if (!APP_Encoder_CreateTask())
     {

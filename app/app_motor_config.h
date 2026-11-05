@@ -1,0 +1,11 @@
+#ifndef APP_MOTOR_CONFIG_H
+#define APP_MOTOR_CONFIG_H
+
+#define APP_MOTOR_BUS_VOLTAGE      12.6f
+#define APP_MOTOR_MAX_VOLTAGE      5.0f
+#define APP_MOTOR_POLE_PAIRS       7U
+#define APP_MOTOR_SENSOR_DIRECTION 1
+#define APP_MOTOR_PWM_HZ           15000U
+#define APP_MOTOR_ALIGN_VOLTAGE    1.0f
+
+#endif

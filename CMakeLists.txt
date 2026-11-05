@@ -84,19 +84,17 @@ mcux_add_source(
             bsp/bsp_motor_pwm.h
             FOC/FOC.h
             FOC/FOC.c
-            FOC/foc_openloop.c
             app/app_motor_task.c
             app/app_motor_task.h  
             app/app_buzzer_task.c
             app/app_buzzer_task.h
             FOC/low_filter.cpp
             FOC/low_filter.h
-            FOC/pid.cpp
-            FOC/pid.h
             app/app_encoder_task.h
             app/app_encoder_task.cpp
             app/app_position_task.h
             app/app_position_task.cpp
+            app/app_motor_config.h
             UI/ui_encoder_waveform.h
             UI/ui_encoder_waveform.c
 )
