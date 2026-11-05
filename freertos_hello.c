@@ -16,6 +16,7 @@
 #include "bsp/bsp_i3c.h"
 #include "app/app_encoder_task.h"
 #include "app/app_position_task.h"
+#include "app/app_vofa_task.h"
 
 
 int main(void)
@@ -57,6 +58,9 @@ int main(void)
         for (;;)
         {
         }
+    }
+    if (!APP_VOFA_CreateTask()){
+        PRINTF("Failed to create VOFA task or init UART1.\r\n");
     }
   
 

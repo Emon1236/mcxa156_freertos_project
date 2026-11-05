@@ -10,8 +10,8 @@
 #define APP_POSITION_SPEED_RPS   2.0f  //机械转速，圈/秒；负值反转
 
 //P、D可通过接口在运行时修改。
-#define APP_POSITION_KP          24.0f
-#define APP_POSITION_KD          0.06f
+#define APP_POSITION_KP          4.5f
+#define APP_POSITION_KD          0.02f
 #define APP_POSITION_UQ_LIMIT    1.0f
 #define APP_POSITION_RAMP        0.0f
 
