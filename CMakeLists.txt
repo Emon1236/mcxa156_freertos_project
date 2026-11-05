@@ -36,6 +36,8 @@ mcux_add_source(
             bsp/bsp_rgb_led.h
             bsp/bsp_spi.c
             bsp/bsp_spi.h
+            bsp/bsp_uart.c
+            bsp/bsp_uart.h
             bsp/bsp_button.c
             bsp/bsp_button.h
             bsp/bsp_buzzer.c
@@ -94,6 +96,8 @@ mcux_add_source(
             app/app_encoder_task.cpp
             app/app_position_task.h
             app/app_position_task.cpp
+            app/app_vofa_task.c
+            app/app_vofa_task.h
             app/app_motor_config.h
             UI/ui_encoder_waveform.h
             UI/ui_encoder_waveform.c
