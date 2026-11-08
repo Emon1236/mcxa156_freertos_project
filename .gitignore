@@ -4,6 +4,7 @@ release/
 build/
 cmake-build-*/
 tools/
+tests/
 .vscode/
 CMakeUserPresets.json
 mcux_include.json
