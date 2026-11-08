@@ -19,7 +19,7 @@ status_t AS5600_ReadAngleDegrees(float *angleDegrees);
 //读取角度并转换为毫度，范围0~360000，不适用浮点运算，适合串口测试或后续定点算法
 status_t AS5600_ReadAngleMilliDegrees(uint32_t *angleMilliDegrees);
 
-
+status_t AS5600_CheckMagnet(void);
 
 #ifdef __cplusplus
 }

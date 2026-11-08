@@ -56,7 +56,17 @@ typedef struct{
     bool needRedraw;          /* 是否需要刷新显示 */
     bool requestKeyFeedback;  /* 是否请求本次按键反馈 */
 } menu_key_result_t;
-
+// 用户在菜单中选择的方向，二选一
+typedef enum{
+    MENU_FOC_DIRECTION_POSITIVE = 0U,
+    MENU_FOC_DIRECTION_NEGATIVE
+} menu_foc_direction_t;
+//FOC模式接口
+typedef enum{
+    MENU_FOC_OFF = 0U,
+    MENU_FOC_OPENLOOP,
+    MENU_FOC_POSITION
+} menu_foc_mode_t;
 
 void Menu_Init(void);//初始化菜单数据；新增初始化菜单动画位置
 
@@ -66,6 +76,13 @@ bool Menu_Update(uint32_t deltaTimeMs); //新增，更新一帧动画，返回tr
 
 void Menu_Render(void); //绘制菜单；新增将当前动画帧绘制到OLED帧缓冲，不再内部发送SPI数据
 
+/* 取得当前波形页面的2、3号屏帧；离开波形页面时返回一次清屏帧。 */
+bool Menu_PreparePairFrame(const uint8_t **frameBuffer);
+
+menu_foc_direction_t Menu_GetFocDirection(void);
+
+menu_foc_mode_t Menu_GetFocMode(void);
+uint16_t Menu_GetFocRpm(void);
 #ifdef __cplusplus
 }
 #endif

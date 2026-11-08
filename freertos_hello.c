@@ -13,41 +13,40 @@
 #include "app/app_ui_task.h"
 #include "app/app_temp_task.h"
 #include "app/app_buzzer_task.h"
-#include "FOC/FOC.h"
+#include "bsp/bsp_i3c.h"
+#include "app/app_encoder_task.h"
 #include "app/app_motor_task.h"
+#include "app/app_vofa_task.h"
 
 
 int main(void)
 {
     status_t status;
-
     BOARD_InitHardware();
+    status = BSP_I3C_Init();
+
+    if (status != kStatus_Success){
+        PRINTF("I3C init failed: %d.\r\n", (int)status);
+    }
+    if (!APP_Encoder_CreateTask())
+    {
+        PRINTF("Failed to create encoder task.\r\n");
+        for (;;) {}
+    }
+    if (!APP_Motor_CreateTask()){
+        PRINTF("Failed to create motor task.\r\n");
+        for (;;) {}
+    }
     if (!APP_Temp_CreateTask())
     {
         PRINTF("Failed to create temperature task.\r\n");
         for (;;)
         {
         }
-    }    
-
+    }
 
     PRINTF("System boot.\r\n");
 
-    status = FOC_Init(12.6f);
-
-    PRINTF("FOC_Init returned: %d\r\n", (int)status);
-
-    if (status != kStatus_Success)
-    {
-        for (;;)
-        {
-        }
-    }
-
-    if (!Foc_openloop_Createdtask()){
-        PRINTF("Failed to create FOC task.\r\n");
-        for (;;){}
-    }
     if (!APP_Buzzer_CreateTask()){
         PRINTF("Failed to create buzzer task.\r\n");
         for (;;){}
@@ -59,6 +58,9 @@ int main(void)
         for (;;)
         {
         }
+    }
+    if (!APP_VOFA_CreateTask()){
+        PRINTF("Failed to create VOFA task or init UART1.\r\n");
     }
   
 

@@ -15,6 +15,12 @@ include(${SdkRootDirPath}/CMakeLists.txt)
 
 include(${board}/board_files.cmake)
 
+option(APP_POSITION_TUNE "Enable bounded position tuning capture" OFF)
+if(APP_POSITION_TUNE)
+    mcux_add_configuration(CC "-DAPP_POSITION_TUNE=1" CX "-DAPP_POSITION_TUNE=1")
+    mcux_add_source(SOURCES tools/position_tune/tune.cpp tools/position_tune/tune.h)
+endif()
+
 # 收集u8g2核心C源码
 # CONFIGURE_DEPENDS表示当u8g2/csrc目录中的源文件发生变化时，CMake会重新检查文件列表。
 file(GLOB U8G2_SOURCES CONFIGURE_DEPENDS
@@ -30,6 +36,8 @@ mcux_add_source(
             bsp/bsp_rgb_led.h
             bsp/bsp_spi.c
             bsp/bsp_spi.h
+            bsp/bsp_uart.c
+            bsp/bsp_uart.h
             bsp/bsp_button.c
             bsp/bsp_button.h
             bsp/bsp_buzzer.c
@@ -78,11 +86,21 @@ mcux_add_source(
             bsp/bsp_motor_pwm.h
             FOC/FOC.h
             FOC/FOC.c
-            FOC/foc_openloop.c
             app/app_motor_task.c
             app/app_motor_task.h  
             app/app_buzzer_task.c
-            app/app_buzzer_task.h     
+            app/app_buzzer_task.h
+            FOC/low_filter.cpp
+            FOC/low_filter.h
+            app/app_encoder_task.h
+            app/app_encoder_task.cpp
+            app/app_position_task.h
+            app/app_position_task.cpp
+            app/app_vofa_task.c
+            app/app_vofa_task.h
+            app/app_motor_config.h
+            UI/ui_encoder_waveform.h
+            UI/ui_encoder_waveform.c
 )
 
 mcux_add_include(

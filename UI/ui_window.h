@@ -23,6 +23,16 @@ typedef void (*ui_window_value_callback_t)(uint8_t value);
 bool UI_Window_OpenValue(const char *title, uint8_t initialValue, uint8_t minimumValue,
                     uint8_t maximumValue, uint8_t step, ui_window_value_callback_t valueChanged);
 
+// 新增二选一弹窗
+/*
+ * initialValue：0 或 1
+ * text0/text1：两个选项的显示文字，必须在弹窗存续期间有效。
+ * CONFIRM：切换并调用 valueChanged。
+ * CANCEL：关闭，保留当前选择。
+*/
+bool UI_Window_OpenChoice(const char *title, uint8_t initialValue, const char *text0,
+                    const char *text1, ui_window_value_callback_t valueChanged);
+
 //返回当前弹窗是否存在，包括进入和退出动画阶段
 bool UI_Window_IsVisible(void);
 //处理一次弹窗输入
@@ -33,8 +43,10 @@ bool UI_Window_Update(uint32_t deltaTimeMs);
 void UI_Window_Draw(u8g2_t *u8g2);
 // 设置弹窗动画响应时间，单位为毫秒
 void UI_Window_SetAnimationResponseMs(uint16_t responseMs);
-
-
+//valueChanged收到数组下标，而不是数组中的实际数值
+bool UI_Window_OpenTable(const char *title, const uint16_t *values, uint8_t count, uint8_t initialIndex, ui_window_value_callback_t valueChanged);
+/* 开始关闭动画，进入动画期间也可以调用。 */
+void UI_Window_Close(void);
 #ifdef __cplusplus
 }
 #endif

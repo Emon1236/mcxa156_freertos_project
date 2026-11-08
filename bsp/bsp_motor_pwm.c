@@ -14,6 +14,7 @@
 #include "fsl_port.h"
 #include "fsl_pwm.h"
 #include "fsl_reset.h"
+#include "fsl_gpio.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,6 +23,7 @@
 
 static bool s_motorPwmInitialized = false;
 static bool s_motorPwmRunning = false;
+static bool s_motorPwmUsed = false;
 
 status_t BSP_MotorPwm_Init(uint32_t pwmFrequencyHz){
     port_pin_config_t pwmPinConfig;
@@ -35,6 +37,8 @@ status_t BSP_MotorPwm_Init(uint32_t pwmFrequencyHz){
     if (pwmFrequencyHz == 0U){
         return kStatus_InvalidArgument;
     }
+    CLOCK_EnableClock(kCLOCK_GateFLEXPWM0);
+    s_motorPwmUsed = true;  
     /*
      * 配置P3_6、P3_8、P3_10为FlexPWM0输出。
      * 三个引脚的PWM复用功能都是ALT5。
@@ -219,4 +223,47 @@ status_t BSP_MotorPwm_Stop(void){
     s_motorPwmRunning = false;
     
     return kStatus_Success;
+}
+
+//释放PWM资源，仅处理PWM0和三个引脚，不对GPIO3总线进行操作，因为还有其他资源在这个总线上
+void BSP_MotorPwm_Deinit(void){
+    const gpio_pin_config_t gpioConfig = {
+        .pinDirection = kGPIO_DigitalOutput,
+        .outputLogic = 0U
+    };
+
+    if (s_motorPwmUsed){
+        /* 先禁用输出，再停止计数器。 */
+        PWM_OutputDisable(BSP_MOTOR_PWM_BASE, kPWM_PwmA, kPWM_Module_0);
+        PWM_OutputDisable(BSP_MOTOR_PWM_BASE, kPWM_PwmA, kPWM_Module_1);
+        PWM_OutputDisable(BSP_MOTOR_PWM_BASE, kPWM_PwmA, kPWM_Module_2);
+
+        PWM_StopTimer(BSP_MOTOR_PWM_BASE,
+            kPWM_Control_Module_0 |
+            kPWM_Control_Module_1 |
+            kPWM_Control_Module_2);
+    }
+
+    CLOCK_EnableClock(kCLOCK_GatePORT3);
+    CLOCK_EnableClock(kCLOCK_GateGPIO3);
+
+    RESET_ReleasePeripheralReset(kPORT3_RST_SHIFT_RSTn);
+    RESET_ReleasePeripheralReset(kGPIO3_RST_SHIFT_RSTn);
+
+    /* 先准备低电平，再切换引脚复用，避免驱动输入悬空。 */
+    GPIO_PinInit(GPIO3, 6U, &gpioConfig);
+    GPIO_PinInit(GPIO3, 8U, &gpioConfig);
+    GPIO_PinInit(GPIO3, 10U, &gpioConfig);
+
+    PORT_SetPinMux(PORT3, 6U, kPORT_MuxAsGpio);
+    PORT_SetPinMux(PORT3, 8U, kPORT_MuxAsGpio);
+    PORT_SetPinMux(PORT3, 10U, kPORT_MuxAsGpio);
+
+    if (s_motorPwmUsed){
+        CLOCK_DisableClock(kCLOCK_GateFLEXPWM0);
+    }
+
+    s_motorPwmInitialized = false;
+    s_motorPwmRunning = false;
+    s_motorPwmUsed = false;
 }

@@ -1,10 +1,13 @@
 #include "app/app_ui_task.h"
 #include "app/app_temp_task.h"
 #include "app/app_buzzer_task.h"
+#include "app/app_motor_task.h"
+#include "app/app_encoder_task.h"
 
 #include "UI/menu.h"
 #include "UI/ui_display_port.h"
 #include "UI/ui_waveform.h"
+#include "UI/ui_encoder_waveform.h"
 
 #include "bsp/bsp_button.h"
 #include "bsp/bsp_buzzer.h"
@@ -27,8 +30,48 @@
 
 static void app_ui_task(void *parameter);
 
-static bool app_ui_handle_button_events(uint32_t events)
-{
+/*
+将 UI 选择转换为电机模块的方向指令,普通刷新时仅在选择改变后下发
+*/
+// static void app_ui_sync_motor_direction(bool force){
+//     static menu_foc_direction_t lastDirection = MENU_FOC_DIRECTION_POSITIVE;
+//     menu_foc_direction_t direction;
+
+//     direction = Menu_GetFocDirection();
+//     if ((!force) && (direction == lastDirection)){
+//         return;
+//     }
+//     APP_Motor_SetDirection((direction == MENU_FOC_DIRECTION_NEGATIVE) ? DIRECTION_NEGATIVE : DIRECTION_POSITIVE);
+
+//     lastDirection = direction;
+// }
+static void app_ui_sync_motor(void){
+    menu_foc_mode_t uiMode = Menu_GetFocMode();
+    app_motor_mode_t mode = APP_MOTOR_OFF;
+
+    int8_t direction =
+        (Menu_GetFocDirection() == MENU_FOC_DIRECTION_NEGATIVE) ?
+        DIRECTION_NEGATIVE :
+        DIRECTION_POSITIVE;
+
+    switch (uiMode){
+        case MENU_FOC_OPENLOOP:
+            mode = APP_MOTOR_OPENLOOP;
+            break;
+
+        case MENU_FOC_POSITION:
+            mode = APP_MOTOR_POSITION;
+            break;
+
+        case MENU_FOC_OFF:
+        default:
+            mode = APP_MOTOR_OFF;
+            break;
+    }
+
+    APP_Motor_SetControl(mode, direction, Menu_GetFocRpm());
+}
+static bool app_ui_handle_button_events(uint32_t events){
     menu_key_t key;
     menu_key_result_t result;
     //一轮扫描只处理一个按键。优先顺序：1、2、3、4。
@@ -49,6 +92,8 @@ static bool app_ui_handle_button_events(uint32_t events)
     }
     /* UI 负责菜单状态和交互结果。 */
     result = Menu_HandleKey(key);
+
+    app_ui_sync_motor();
     /* App 将反馈请求转换为实际声音请求。 */
     if (result.requestKeyFeedback){
         //非阻塞提交,提示音提交失败不影响菜单操作和重绘。
@@ -68,6 +113,7 @@ static void app_ui_task(void *parameter){
     TickType_t lastWakeTime;
     TickType_t previousUpdateTick;
     bool pair23Ready;
+    const uint8_t *pendingPairFrame = NULL;
 
     (void)parameter;
 
@@ -77,6 +123,8 @@ static void app_ui_task(void *parameter){
     BSP_Button_Init();
     //BSP_Buzzer_Init();
     Menu_Init();
+    UI_EncoderWave_SetFilterTimeMs(APP_ENCODER_TF_MS);
+    app_ui_sync_motor();
 
     //先立即绘制第一帧，避免启动后等待一个任务周期。
     Menu_Render();
@@ -93,7 +141,7 @@ static void app_ui_task(void *parameter){
         bool needRedraw;
 
         needRedraw = false;
-        //将温度任务累积的消息全部取出
+        //独立消费温度和编码器队列，采集频率互不影响。
         //没有其他任务修改波形，因此ui_waveform内部不需要互斥锁
         for (;;){
             app_temp_sample_t temperatureSample;
@@ -103,12 +151,17 @@ static void app_ui_task(void *parameter){
             }
 
             if (UI_Waveform_AddTemperatureSample(temperatureSample.temperatureQ4, temperatureSample.valid)){
-                /*
-                * 当前正显示温度控制页面时，
-                * 温度变化需要刷新1号屏。
-                */
                 needRedraw = true;
             }
+        }
+        for (;;){
+            app_encoder_sample_t sample;
+
+            if (!APP_Encoder_TryReceive(&sample)){
+                break;
+            }
+
+            UI_EncoderWave_AddSample(sample.rawRpm, sample.filteredRpm, sample.sequence, sample.valid);
         }
         /*
          * 每20ms调用一次。
@@ -139,19 +192,19 @@ static void app_ui_task(void *parameter){
             const uint8_t *pairFrame = NULL;
             // Menu_Render只在RAM中的U8G2帧缓冲里绘图，此时不占用SPI
             Menu_Render();
-            //UI_Display_Present();
-            //2，3屏幕刷新和1号相互独立
-            if (pair23Ready && UI_Waveform_PerpareFrame(&pairFrame)){
-                if (!BSP_2OLEDS_Present(pairFrame))
-                {
-                    /*
-                    * 调试时在此处设置断点。
-                    * 如果进入这里，需要继续检查SPI Busy或传输错误。
-                    */
-                }
+            if (pair23Ready && Menu_PreparePairFrame(&pairFrame)){
+                pendingPairFrame = pairFrame;
             }
+        }
+        //失败的波形帧或清屏帧下一轮重试；新页面的帧优先替换旧帧。
+        if (pair23Ready && pendingPairFrame != NULL){
+            if (BSP_2OLEDS_Present(pendingPairFrame)){
+                pendingPairFrame = NULL;
+            }
+        }
+        if (needRedraw){
             //1号屏最后刷新。
-        UI_Display_Present();
+            UI_Display_Present();
         }
 
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(APP_UI_TASK_PERIOD_MS));
