@@ -43,8 +43,10 @@ bool UI_Window_Update(uint32_t deltaTimeMs);
 void UI_Window_Draw(u8g2_t *u8g2);
 // 设置弹窗动画响应时间，单位为毫秒
 void UI_Window_SetAnimationResponseMs(uint16_t responseMs);
-
-
+//valueChanged收到数组下标，而不是数组中的实际数值
+bool UI_Window_OpenTable(const char *title, const uint16_t *values, uint8_t count, uint8_t initialIndex, ui_window_value_callback_t valueChanged);
+/* 开始关闭动画，进入动画期间也可以调用。 */
+void UI_Window_Close(void);
 #ifdef __cplusplus
 }
 #endif

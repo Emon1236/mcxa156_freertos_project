@@ -64,6 +64,14 @@ static const char *s_noticeMessage = "COMING SOON";
 //二选一弹窗的默认参数
 static menu_foc_direction_t s_focDirection = MENU_FOC_DIRECTION_POSITIVE;
 
+static menu_foc_mode_t s_focMode = MENU_FOC_OFF;
+
+static const uint16_t s_focRpm[] = {
+    0U, 60U, 120U, 180U, 240U, 300U
+};
+
+static uint8_t s_focSpeedIndex = 0U;
+
 
 /* 静态函数声明区 */
 static void menu_action_font(void);
@@ -168,6 +176,9 @@ static const menu_page_t s_wavePage;
 /* FOC改变方向的弹窗菜单 */
 static void menu_action_foc_openloop(void);
 static void menu_apply_foc_direction(uint8_t value);
+
+static void menu_action_foc_closeloop(void);
+static void menu_apply_foc_speed(uint8_t index);
 
 /* Editor列表：保留参考工程的功能入口。 */
 static const menu_item_t s_editorItems[] =
@@ -458,12 +469,19 @@ static const menu_page_t s_settingsPage =
     .itemCount =
         (uint8_t)(sizeof(s_settingsItems) / sizeof(s_settingsItems[0]))
 };
+
 static const menu_item_t s_focItems[] = {
     {
         .label = "openloop",
         .getLabel = NULL,
         .childPage = NULL,
-        .action = menu_action_foc_openloop 
+        .action = menu_action_foc_openloop
+    },
+    {
+        .label = "closeloop",
+        .getLabel = NULL,
+        .childPage = NULL,
+        .action = menu_action_foc_closeloop
     }
 };
 
@@ -1590,8 +1608,29 @@ static void menu_action_foc_openloop(void){
     uint8_t initialValue;
     initialValue = (s_focDirection == MENU_FOC_DIRECTION_NEGATIVE) ? 1U : 0U;
 
-    (void)UI_Window_OpenChoice( "direction", initialValue, "+", "-", menu_apply_foc_direction);
+    if(UI_Window_OpenChoice( "direction", initialValue, "+", "-", menu_apply_foc_direction)){
+        s_focMode = MENU_FOC_OPENLOOP;
+    };
 }
+
+static void menu_apply_foc_speed(uint8_t index){
+    s_focSpeedIndex = index;
+}
+
+
+static void menu_action_foc_closeloop(void){
+    /* 每次进入从 0 RPM 开始。 */
+    if (UI_Window_OpenTable(
+            "speed RPM",
+            s_focRpm,
+            (uint8_t)(sizeof(s_focRpm) / sizeof(s_focRpm[0])),
+            0U,
+            menu_apply_foc_speed)){
+        s_focSpeedIndex = 0U;
+        s_focMode = MENU_FOC_POSITION;
+    }
+}
+
 
 menu_foc_direction_t Menu_GetFocDirection(void){
     return s_focDirection;
@@ -1600,6 +1639,14 @@ menu_foc_direction_t Menu_GetFocDirection(void){
 // static void menu_action_open_notice(void){
 //     s_currentView = MENU_VIEW_NOTICE;
 // }
+
+menu_foc_mode_t Menu_GetFocMode(void){
+    return s_focMode;
+}
+
+uint16_t Menu_GetFocRpm(void){
+    return s_focRpm[s_focSpeedIndex];
+}
 
 void Menu_Init(void){
     APP_Settings_Init();
@@ -1621,6 +1668,8 @@ void Menu_Init(void){
     s_menuDepth = 0U;
     s_currentView = MENU_VIEW_LIST;
     s_focDirection = MENU_FOC_DIRECTION_POSITIVE;
+    s_focMode = MENU_FOC_OFF;
+    s_focSpeedIndex = 0U;
 
     s_menuStack[0].page = &s_rootPage;
     s_menuStack[0].selectedIndex = 0U;
@@ -1637,17 +1686,35 @@ static bool menu_handle_key_action(menu_key_t key)
 {
     // 优先处理弹窗
     if (UI_Window_IsVisible()){
-    switch (key){
-        case MENU_KEY_UP:
-            return UI_Window_HandleInput(UI_WINDOW_INPUT_DECREASE);
-        case MENU_KEY_DOWN:
-            return UI_Window_HandleInput(UI_WINDOW_INPUT_INCREASE);
-        case MENU_KEY_OK:
-            return UI_Window_HandleInput(UI_WINDOW_INPUT_CONFIRM);
-        case MENU_KEY_BACK:
-            return UI_Window_HandleInput(UI_WINDOW_INPUT_CANCEL);
-        default:
-            return false;
+        //FOC弹窗返回，立刻清除运行请求，再播放退出动画
+        if (s_focMode != MENU_FOC_OFF && key == MENU_KEY_BACK){
+            s_focMode = MENU_FOC_OFF;
+            UI_Window_Close();
+            return true;
+        }
+        if (s_focMode == MENU_FOC_POSITION){
+            switch (key){
+                case MENU_KEY_UP:
+                    return UI_Window_HandleInput(UI_WINDOW_INPUT_INCREASE);
+                case MENU_KEY_DOWN:
+                    return UI_Window_HandleInput(UI_WINDOW_INPUT_DECREASE);
+                case MENU_KEY_OK:
+                    return false;
+                default:
+                    return false;
+                }
+            }
+        switch (key){
+            case MENU_KEY_UP:
+                return UI_Window_HandleInput(UI_WINDOW_INPUT_DECREASE);
+            case MENU_KEY_DOWN:
+                return UI_Window_HandleInput(UI_WINDOW_INPUT_INCREASE);
+            case MENU_KEY_OK:
+                return UI_Window_HandleInput(UI_WINDOW_INPUT_CONFIRM);
+            case MENU_KEY_BACK:
+                return UI_Window_HandleInput(UI_WINDOW_INPUT_CANCEL);
+            default:
+                return false;
         }
     }
     //提示页返回原来的菜单层级

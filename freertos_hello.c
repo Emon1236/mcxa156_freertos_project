@@ -15,7 +15,7 @@
 #include "app/app_buzzer_task.h"
 #include "bsp/bsp_i3c.h"
 #include "app/app_encoder_task.h"
-#include "app/app_position_task.h"
+#include "app/app_motor_task.h"
 #include "app/app_vofa_task.h"
 
 
@@ -33,8 +33,8 @@ int main(void)
         PRINTF("Failed to create encoder task.\r\n");
         for (;;) {}
     }
-    if (!APP_Position_CreateTask()){
-        PRINTF("Failed to create position task.\r\n");
+    if (!APP_Motor_CreateTask()){
+        PRINTF("Failed to create motor task.\r\n");
         for (;;) {}
     }
     if (!APP_Temp_CreateTask())

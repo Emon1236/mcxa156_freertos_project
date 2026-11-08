@@ -12,6 +12,7 @@
 #include "UI/ui_display_port.h"
 
 #include <stddef.h>
+#include <stdio.h>
 //弹窗布局参数沿用WouoUI版本
 #define UI_WINDOW_WIDTH                 102U
 #define UI_WINDOW_HEIGHT                32U
@@ -55,6 +56,8 @@ typedef struct{
 
     bool choiceMode;
     const char *choiceText[2];
+    //普通弹窗为 NULL，数组弹窗指向显示数据。
+    const uint16_t *values;
 
     float y;
     float targetY;
@@ -79,26 +82,26 @@ static int16_t ui_window_float_to_int16(float value){
 
 //将uint8_t转换为十进制字符串，不引入sprintf，避免增加代码体积
 //缓冲区至少需要4个字节，255加结尾'\0'
-static void ui_window_uint8_to_string(uint8_t value, char text[4]){
-    if (value >= 100U){
-        text[0] = (char)('0' + value / 100U);
-        text[1] = (char)('0' + (value / 10U) % 10U);
-        text[2] = (char)('0' + value % 10U);
-        text[3] = '\0';
-    }
-    else if (value >= 10U){
-        text[0] = (char)('0' + value / 10U);
-        text[1] = (char)('0' + value % 10U);
-        text[2] = '\0';
-        text[3] = '\0';
-    }
-    else{
-        text[0] = (char)('0' + value);
-        text[1] = '\0';
-        text[2] = '\0';
-        text[3] = '\0';
-    }
-}
+// static void ui_window_uint8_to_string(uint8_t value, char text[4]){
+//     if (value >= 100U){
+//         text[0] = (char)('0' + value / 100U);
+//         text[1] = (char)('0' + (value / 10U) % 10U);
+//         text[2] = (char)('0' + value % 10U);
+//         text[3] = '\0';
+//     }
+//     else if (value >= 10U){
+//         text[0] = (char)('0' + value / 10U);
+//         text[1] = (char)('0' + value % 10U);
+//         text[2] = '\0';
+//         text[3] = '\0';
+//     }
+//     else{
+//         text[0] = (char)('0' + value);
+//         text[1] = '\0';
+//         text[2] = '\0';
+//         text[3] = '\0';
+//     }
+// }
 //根据当前数值计算进度条内部像素填充宽度
 static float ui_window_calculate_bar_target(void){
     // 外框宽度为92，左右各留2像素
@@ -169,6 +172,8 @@ bool UI_Window_OpenValue(const char *title, uint8_t initialValue, uint8_t minimu
     s_window.choiceMode = false;
     s_window.choiceText[0] = NULL;
     s_window.choiceText[1] = NULL;
+
+    s_window.values = NULL;
 
     s_window.visible = true;
     s_window.phase = UI_WINDOW_PHASE_OPENING;
@@ -335,7 +340,8 @@ void UI_Window_Draw(u8g2_t *u8g2){
     uint16_t valueWidth;
     uint16_t valueX;
 
-    char valueText[4];
+    char valueText[6];
+    uint16_t displayValue;
 
     if ((!s_window.visible) || (u8g2 == NULL)){
         return;
@@ -409,7 +415,16 @@ void UI_Window_Draw(u8g2_t *u8g2){
     u8g2_DrawStr(u8g2, UI_WINDOW_LEFT + 5U, (u8g2_uint_t)titleY, s_window.title);
 
     //将数值转换成字符串，并在弹窗右侧对齐
-    ui_window_uint8_to_string(s_window.value, valueText);
+    displayValue = s_window.value;
+
+    if (s_window.values != NULL){
+        displayValue = s_window.values[s_window.value];
+    }
+
+    (void)snprintf(valueText,
+                sizeof(valueText),
+                "%u",
+                (unsigned int)displayValue);
 
     valueWidth = u8g2_GetStrWidth(u8g2, valueText);
 
@@ -425,4 +440,24 @@ void UI_Window_SetAnimationResponseMs(uint16_t responseMs){
         responseMs = 1U;
     }
     s_windowAnimationResponseMs = responseMs;
+}
+
+bool UI_Window_OpenTable(const char *title, const uint16_t *values, uint8_t count, uint8_t initialIndex, ui_window_value_callback_t valueChanged){
+    if (values == NULL || count == 0U){
+        return false;
+    }
+    if (!UI_Window_OpenValue(title, initialIndex, 0U, (uint8_t)(count - 1U),
+                             1U, valueChanged)){
+        return false;
+    }
+
+    s_window.values = values;
+    return true;
+}
+
+void UI_Window_Close(void){
+    if (s_window.visible &&
+        s_window.phase != UI_WINDOW_PHASE_CLOSING){
+        ui_window_begin_close();
+    }
 }

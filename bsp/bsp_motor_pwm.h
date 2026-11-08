@@ -22,6 +22,8 @@ status_t BSP_MotorPwm_SetDuty(float dutyA, float dutyB, float dutyC);
 status_t BSP_MotorPwm_Start(void);
 //停止三个PWM子模块。
 status_t BSP_MotorPwm_Stop(void);
+//禁用PWM输出，关闭外设时钟，将三路输入保持GPIO低电平
+void BSP_MotorPwm_Deinit(void);
 
 
 #ifdef __cplusplus

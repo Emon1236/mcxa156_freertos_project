@@ -33,19 +33,44 @@ static void app_ui_task(void *parameter);
 /*
 将 UI 选择转换为电机模块的方向指令,普通刷新时仅在选择改变后下发
 */
-static void app_ui_sync_motor_direction(bool force){
-    static menu_foc_direction_t lastDirection = MENU_FOC_DIRECTION_POSITIVE;
-    menu_foc_direction_t direction;
+// static void app_ui_sync_motor_direction(bool force){
+//     static menu_foc_direction_t lastDirection = MENU_FOC_DIRECTION_POSITIVE;
+//     menu_foc_direction_t direction;
 
-    direction = Menu_GetFocDirection();
-    if ((!force) && (direction == lastDirection)){
-        return;
+//     direction = Menu_GetFocDirection();
+//     if ((!force) && (direction == lastDirection)){
+//         return;
+//     }
+//     APP_Motor_SetDirection((direction == MENU_FOC_DIRECTION_NEGATIVE) ? DIRECTION_NEGATIVE : DIRECTION_POSITIVE);
+
+//     lastDirection = direction;
+// }
+static void app_ui_sync_motor(void){
+    menu_foc_mode_t uiMode = Menu_GetFocMode();
+    app_motor_mode_t mode = APP_MOTOR_OFF;
+
+    int8_t direction =
+        (Menu_GetFocDirection() == MENU_FOC_DIRECTION_NEGATIVE) ?
+        DIRECTION_NEGATIVE :
+        DIRECTION_POSITIVE;
+
+    switch (uiMode){
+        case MENU_FOC_OPENLOOP:
+            mode = APP_MOTOR_OPENLOOP;
+            break;
+
+        case MENU_FOC_POSITION:
+            mode = APP_MOTOR_POSITION;
+            break;
+
+        case MENU_FOC_OFF:
+        default:
+            mode = APP_MOTOR_OFF;
+            break;
     }
-    APP_Motor_SetDirection((direction == MENU_FOC_DIRECTION_NEGATIVE) ? DIRECTION_NEGATIVE : DIRECTION_POSITIVE);
 
-    lastDirection = direction;
+    APP_Motor_SetControl(mode, direction, Menu_GetFocRpm());
 }
-
 static bool app_ui_handle_button_events(uint32_t events){
     menu_key_t key;
     menu_key_result_t result;
@@ -67,8 +92,8 @@ static bool app_ui_handle_button_events(uint32_t events){
     }
     /* UI 负责菜单状态和交互结果。 */
     result = Menu_HandleKey(key);
-    /* 菜单完成状态更新后，由 App 层下发方向指令。 */
-    app_ui_sync_motor_direction(false);
+
+    app_ui_sync_motor();
     /* App 将反馈请求转换为实际声音请求。 */
     if (result.requestKeyFeedback){
         //非阻塞提交,提示音提交失败不影响菜单操作和重绘。
@@ -99,7 +124,7 @@ static void app_ui_task(void *parameter){
     //BSP_Buzzer_Init();
     Menu_Init();
     UI_EncoderWave_SetFilterTimeMs(APP_ENCODER_TF_MS);
-    app_ui_sync_motor_direction(true);
+    app_ui_sync_motor();
 
     //先立即绘制第一帧，避免启动后等待一个任务周期。
     Menu_Render();
